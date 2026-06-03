@@ -65,7 +65,7 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
 <div id="appView" class="wrap hide">
   <div class="row" style="justify-content:space-between;margin-bottom:14px;">
     <div><h1>Finanças da Família</h1><div class="who" id="whoami"></div></div>
-    <button class="btn alt sm" id="btnLogout">Sair</button>
+    <div class="row"><a class="btn sm" href="dashboard.html" style="text-decoration:none;">📊 Dashboard</a><button class="btn alt sm" id="btnLogout">Sair</button></div>
   </div>
 
   <div class="tabs">
@@ -102,7 +102,7 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
       </div>
       <div class="tablebox">
         <table>
-          <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th><th>Quem</th><th>Classificação</th></tr></thead>
+          <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th><th>Classificação</th></tr></thead>
           <tbody id="tbody"></tbody>
         </table>
       </div>
@@ -217,25 +217,22 @@ function render(){
     const canEdit = ROLE==="admin" || COLAB_CLASSES.includes(r.cls);
     const opts=(ROLE==="admin"?OPTIONS:COLAB_CLASSES).map(o=>`<option value="${o}"${o===r.cls?" selected":""}>${o}</option>`).join("");
     const cell = pend
-      ? `<span class="badge">pendente → ${pend.para_cls}</span>`
+      ? `<span class="badge">pendente${pend.para_cls!==r.cls?` → ${pend.para_cls}`:''}${pend.para_categoria?` (cat: ${pend.para_categoria})`:''}</span>`
       : (canEdit? `<select class="cls" data-id="${r.id}" data-cur="${r.cls}" style="border-left:4px solid ${COLORS[r.cls]}">${opts}</select>`
                 : `<span style="border-left:4px solid ${COLORS[r.cls]};padding-left:6px">${r.cls}</span>`);
     const d=r.data.slice(8,10)+"/"+r.data.slice(5,7)+"/"+r.data.slice(2,4);
-    const catCell = ROLE==="admin"
+    const canEditCat = !pend && (ROLE==="admin" || COLAB_CLASSES.includes(r.cls));
+    const catCell = canEditCat
       ? `<input class="cat" list="catlist" data-id="${r.id}" value="${(r.categoria||'').replace(/"/g,'&quot;')}">`
       : `<span class="muted">${r.categoria||''}</span>`;
-    const quemCell = ROLE==="admin"
-      ? `<select class="quem" data-id="${r.id}">${QUEM.map(o=>`<option${o===(r.quem||'?')?" selected":""}>${o}</option>`).join("")}</select>`
-      : `<span class="muted">${r.quem||'?'}</span>`;
     return `<tr class="${r.cls==='Indefinido'?'ind':''} ${pend?'pend':''}">
       <td class="muted">${d}<div style="font-size:10px">${r.src}</div></td>
       <td>${r.descricao}</td><td>${catCell}</td>
-      <td class="num">${BRL(Number(r.valor))}</td><td>${quemCell}</td>
+      <td class="num">${BRL(Number(r.valor))}</td>
       <td>${cell}</td></tr>`;
   }).join("");
   document.querySelectorAll("select.cls").forEach(sel=> sel.onchange=onChangeCls);
   document.querySelectorAll("input.cat").forEach(inp=> inp.onchange=onChangeCat);
-  document.querySelectorAll("select.quem").forEach(sel=> sel.onchange=onChangeQuem);
 }
 
 async function onChangeCls(e){
@@ -254,16 +251,16 @@ async function onChangeCls(e){
 }
 
 async function onChangeCat(e){
-  const id=+e.target.dataset.id, v=e.target.value;
-  const {error}=await sb.from("transactions").update({categoria:v, updated_by:USER.id, updated_at:new Date().toISOString()}).eq("id",id);
-  if(error){ alert("Erro: "+error.message); return; }
-  const t=TX.find(x=>x.id===id); t.categoria=v;
-}
-async function onChangeQuem(e){
-  const id=+e.target.dataset.id, v=e.target.value;
-  const {error}=await sb.from("transactions").update({quem:v, updated_by:USER.id, updated_at:new Date().toISOString()}).eq("id",id);
-  if(error){ alert("Erro: "+error.message); return; }
-  const t=TX.find(x=>x.id===id); t.quem=v;
+  const id=+e.target.dataset.id, v=e.target.value; const t=TX.find(x=>x.id===id);
+  if(ROLE==="admin"){
+    const {error}=await sb.from("transactions").update({categoria:v, updated_by:USER.id, updated_at:new Date().toISOString()}).eq("id",id);
+    if(error){ alert("Erro: "+error.message); return; }
+    t.categoria=v;
+  } else {
+    const {error}=await sb.from("proposals").insert({transaction_id:id, de_cls:t.cls, para_cls:t.cls, para_categoria:v, proposta_por:USER.id});
+    if(error){ alert("Não foi possível propor: "+error.message); return; }
+    await loadAll();
+  }
 }
 
 // ---- APROVAÇÕES ----
