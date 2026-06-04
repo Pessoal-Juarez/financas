@@ -5,47 +5,79 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Finanças da Família</title>
 <style>
-:root{ color-scheme: light; }
+:root{
+  color-scheme: light;
+  --bg:#f4f6f9; --card:#fff; --text:#1a2230; --muted:#8a93a3; --th:#6b7686;
+  --border:#e6e9ef; --border2:#eef1f6; --field:#d4dae6; --field2:#e1e6ef;
+  --input-bg:#fff; --row-ind:#fdeef0; --row-pend:#fff7e6; --badge-bg:#ffe1b0; --badge-fg:#a35a00;
+  --shadow:0 1px 3px rgba(20,30,60,.04);
+}
+:root[data-theme="light"]{ color-scheme: light; }
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#0f141b; --card:#1a2230; --text:#e7ebf0; --muted:#97a2b2; --th:#9aa3b2;
+  --border:#2a3442; --border2:#232c38; --field:#3a4757; --field2:#33404f;
+  --input-bg:#222c38; --row-ind:#36222e; --row-pend:#37331f; --badge-bg:#574321; --badge-fg:#ffd591;
+  --shadow:0 1px 3px rgba(0,0,0,.35);
+}
+@media (prefers-color-scheme: dark){
+  :root[data-theme="system"]{
+    color-scheme: dark;
+    --bg:#0f141b; --card:#1a2230; --text:#e7ebf0; --muted:#97a2b2; --th:#9aa3b2;
+    --border:#2a3442; --border2:#232c38; --field:#3a4757; --field2:#33404f;
+    --input-bg:#222c38; --row-ind:#36222e; --row-pend:#37331f; --badge-bg:#574321; --badge-fg:#ffd591;
+    --shadow:0 1px 3px rgba(0,0,0,.35);
+  }
+}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f4f6f9;color:#1a2230;line-height:1.45;}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.45;}
 .wrap{max-width:1120px;margin:0 auto;padding:18px;}
 h1{font-size:20px;}
-.muted{color:#8a93a3;font-size:12px;}
-.card{background:#fff;border:1px solid #e6e9ef;border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:0 1px 3px rgba(20,30,60,.04);}
+.muted{color:var(--muted);font-size:12px;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:var(--shadow);}
 .big{font-size:26px;font-weight:800;}
 .blue{color:#2f6df0;}.purple{color:#7a5cf0;}.pos{color:#0f9d58;}.neg{color:#d23f3f;}
 .split{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 @media(max-width:820px){.split{grid-template-columns:1fr;}}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
-select,input,button{font-size:13px;padding:7px 10px;border:1px solid #d4dae6;border-radius:9px;background:#fff;}
+select,input,button{font-size:13px;padding:7px 10px;border:1px solid var(--field);border-radius:9px;background:var(--input-bg);color:var(--text);}
 button{cursor:pointer;}
 .btn{background:#2f6df0;color:#fff;border-color:#2f6df0;font-weight:600;}
-.btn.alt{background:#fff;color:#2f6df0;}
+.btn.alt{background:var(--card);color:#2f6df0;}
 .btn.green{background:#0f9d58;border-color:#0f9d58;color:#fff;}
-.btn.red{background:#fff;color:#d23f3f;border-color:#f0c4c4;}
+.btn.red{background:var(--card);color:#d23f3f;border-color:#f0c4c4;}
 .btn.sm{padding:5px 9px;font-size:12px;}
 table{width:100%;border-collapse:collapse;font-size:12.5px;}
-th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #eef1f6;vertical-align:middle;}
-th{color:#6b7686;font-weight:600;font-size:10.5px;text-transform:uppercase;position:sticky;top:0;background:#fff;}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border2);vertical-align:middle;}
+th{color:var(--th);font-weight:600;font-size:10.5px;text-transform:uppercase;position:sticky;top:0;background:var(--card);}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
-tr.ind{background:#fdeef0;} tr.pend{background:#fff7e6;}
-.tablebox{max-height:560px;overflow:auto;border:1px solid #eef1f6;border-radius:10px;}
-.tabs{display:flex;gap:6px;margin-bottom:14px;}
-.tab{padding:8px 14px;border-radius:10px;border:1px solid #e6e9ef;background:#fff;cursor:pointer;font-weight:600;font-size:13px;}
+tr.ind{background:var(--row-ind);} tr.pend{background:var(--row-pend);}
+.tablebox{max-height:560px;overflow:auto;border:1px solid var(--border2);border-radius:10px;}
+.tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}
+.tab{padding:8px 14px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;font-weight:600;font-size:13px;}
 .tab.on{background:#2f6df0;color:#fff;border-color:#2f6df0;}
 .sumgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;}
-.sline{display:flex;justify-content:space-between;border:1px solid #eef1f6;border-radius:9px;padding:8px 10px;font-size:13px;}
+.sline{display:flex;justify-content:space-between;border:1px solid var(--border2);border-radius:9px;padding:8px 10px;font-size:13px;}
 .dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;}
-.badge{font-size:9.5px;font-weight:700;padding:1px 7px;border-radius:20px;background:#ffe1b0;color:#a35a00;margin-left:6px;}
+.badge{font-size:9.5px;font-weight:700;padding:1px 7px;border-radius:20px;background:var(--badge-bg);color:var(--badge-fg);margin-left:6px;}
 .hide{display:none;}
-input.cat,select.quem{font-size:12px!important;padding:4px 6px!important;border:1px solid #e1e6ef;border-radius:7px;background:#fff;}
+input.cat,select.quem{font-size:12px!important;padding:4px 6px!important;border:1px solid var(--field2);border-radius:7px;background:var(--input-bg);color:var(--text);}
 input.cat{width:130px;}
 select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
 .login{max-width:360px;margin:60px auto;}
 .login input{width:100%;margin-bottom:10px;}
 .err{color:#d23f3f;font-size:13px;margin-top:6px;}
-.who{font-size:12px;color:#6b7686;}
+.who{font-size:12px;color:var(--th);}
+@media(max-width:560px){
+  .wrap{padding:12px;}
+  h1{font-size:17px;} .big{font-size:21px;}
+  table{font-size:11.5px;} th{font-size:10px;}
+  .tab{padding:7px 11px;font-size:12px;}
+  .card{padding:13px;}
+  input.cat{width:104px;}
+}
 </style>
+<script>document.documentElement.setAttribute('data-theme', localStorage.getItem('tema')||'system');</script>
 </head>
 <body>
 
@@ -65,7 +97,7 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
 <div id="appView" class="wrap hide">
   <div class="row" style="justify-content:space-between;margin-bottom:14px;">
     <div><h1>Finanças da Família</h1><div class="who" id="whoami"></div></div>
-    <div class="row"><a class="btn sm" href="dashboard.html" style="text-decoration:none;">📊 Dashboard</a><button class="btn alt sm" id="btnLogout">Sair</button></div>
+    <div class="row"><select id="theme" title="Tema" style="padding:5px 8px;font-size:12px;"><option value="system">🖥️ Sistema</option><option value="light">☀️ Claro</option><option value="dark">🌙 Escuro</option></select><a class="btn sm" href="dashboard.html" style="text-decoration:none;">📊 Dashboard</a><button class="btn alt sm" id="btnLogout">Sair</button></div>
   </div>
 
   <div class="tabs">
@@ -147,6 +179,8 @@ const ymLabel = s => MES[s.slice(5,7)]+"/"+s.slice(0,4);
 let ROLE="colab", USER=null, TX=[], PEND={}, VIEW_TIPO="saida"; // PEND: transaction_id -> proposal
 
 const $=id=>document.getElementById(id);
+(function(){ const ts=$("theme"); if(ts){ ts.value=localStorage.getItem('tema')||'system';
+  ts.onchange=e=>{ document.documentElement.setAttribute('data-theme', e.target.value); localStorage.setItem('tema', e.target.value); }; } })();
 
 // ---- AUTH ----
 $("btnLogin").onclick = async ()=>{
