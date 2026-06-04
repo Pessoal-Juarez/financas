@@ -69,7 +69,8 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
   </div>
 
   <div class="tabs">
-    <div class="tab on" data-tab="lanc" id="tabLanc">Lançamentos</div>
+    <div class="tab on" data-tab="lanc" data-tipo="saida" id="tabGastos">Gastos</div>
+    <div class="tab" data-tab="lanc" data-tipo="entrada" id="tabReceitas">Receitas</div>
     <div class="tab hide" data-tab="aprov" id="tabAprov">Aprovações <span id="pendCount"></span></div>
   </div>
 
@@ -82,7 +83,7 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
         <div class="muted" id="custoSub"></div>
       </div>
       <div class="card" style="text-align:center;">
-        <div class="muted">GASTOS DAS EMPRESAS</div>
+        <div class="muted" id="bizLbl">GASTOS DAS EMPRESAS</div>
         <div id="bizTot" class="big purple">—</div>
         <div class="muted" id="bizSub"></div>
       </div>
@@ -143,7 +144,7 @@ const BRL = n => "R$ " + (n||0).toLocaleString("pt-BR",{minimumFractionDigits:2,
 const ym = d => d.slice(0,7);
 const ymLabel = s => MES[s.slice(5,7)]+"/"+s.slice(0,4);
 
-let ROLE="colab", USER=null, TX=[], PEND={}; // PEND: transaction_id -> proposal
+let ROLE="colab", USER=null, TX=[], PEND={}, VIEW_TIPO="saida"; // PEND: transaction_id -> proposal
 
 const $=id=>document.getElementById(id);
 
@@ -192,16 +193,18 @@ function buildMonths(){
   if(!document.getElementById("catlist")){ const dl=document.createElement("datalist"); dl.id="catlist"; dl.innerHTML=CATLIST.map(c=>`<option value="${c}">`).join(""); document.body.appendChild(dl); }
 }
 
-function scope(){ const m=$("fMonth").value; return m? TX.filter(r=>ym(r.data)===m):TX; }
+function scope(){ const m=$("fMonth").value; return TX.filter(r=>(r.tipo||'saida')===VIEW_TIPO && (!m||ym(r.data)===m)); }
 
 function recompute(){
   const s=scope(), tot={}; OPTIONS.forEach(o=>tot[o]=0);
   s.forEach(r=> tot[r.cls]=(tot[r.cls]||0)+Number(r.valor));
   const custo=CUSTO.reduce((a,o)=>a+tot[o],0), biz=BIZ.reduce((a,o)=>a+tot[o],0);
   const m=$("fMonth").value, nMonths=[...new Set(TX.map(r=>ym(r.data)))].length||1;
-  $("custoLbl").textContent = m? "CUSTO DE VIDA — "+ymLabel(m):"CUSTO DE VIDA — soma do período";
+  const ent = VIEW_TIPO==="entrada";
+  $("custoLbl").textContent = (ent?"RECEITA PESSOAL/FAMÍLIA":"CUSTO DE VIDA")+(m?" — "+ymLabel(m):" — soma do período");
   $("custoVida").textContent = BRL(custo);
   $("custoSub").textContent = m? "família "+BRL(tot["Pessoal família"])+" · Juarez "+BRL(tot["Pessoal Juarez"])+" · Rayane "+BRL(tot["Pessoal Rayane"]) : "média ≈ "+BRL(custo/nMonths)+"/mês";
+  $("bizLbl").textContent = ent?"RECEITA DAS EMPRESAS":"GASTOS DAS EMPRESAS";
   $("bizTot").textContent = BRL(biz);
   $("bizSub").textContent = "Dra. Rayane "+BRL(tot["Dra. Rayane"])+" · Slim Fit "+BRL(tot["Slim Fit"])+" · Rai Móveis "+BRL(tot["Rai Móveis"])+" · OQV "+BRL(tot["OQV"]);
   $("sumGrid").innerHTML = OPTIONS.map(o=>`<div class="sline"><span><span class="dot" style="background:${COLORS[o]}"></span>${o}</span><b>${BRL(tot[o])}</b></div>`).join("");
@@ -209,7 +212,7 @@ function recompute(){
 
 function render(){
   const m=$("fMonth").value, fs=$("fSrc").value, fc=$("fCls").value, fr=$("fRev").value, q=$("fSearch").value.toLowerCase();
-  let rows=TX.filter(r=> (!m||ym(r.data)===m)&&(!fs||r.src===fs)&&(!fc||r.cls===fc)&&(!q||r.descricao.toLowerCase().includes(q)) );
+  let rows=TX.filter(r=> (r.tipo||'saida')===VIEW_TIPO && (!m||ym(r.data)===m)&&(!fs||r.src===fs)&&(!fc||r.cls===fc)&&(!q||r.descricao.toLowerCase().includes(q)) );
   if(fr==="ind") rows=rows.filter(r=>r.cls==="Indefinido");
   if(fr==="pend") rows=rows.filter(r=>PEND[r.id]);
   $("tbody").innerHTML = rows.map(r=>{
@@ -284,6 +287,7 @@ async function loadAprov(){
 document.querySelectorAll(".tab").forEach(t=> t.onclick=()=>{
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on")); t.classList.add("on");
   const k=t.dataset.tab;
+  if(t.dataset.tipo){ VIEW_TIPO=t.dataset.tipo; recompute(); render(); }
   $("paneLanc").classList.toggle("hide",k!=="lanc");
   $("paneAprov").classList.toggle("hide",k!=="aprov");
 });

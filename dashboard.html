@@ -73,6 +73,13 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
     </div>
 
     <div class="card">
+      <h2>As empresas se pagam? <span class="muted" id="payScope"></span></h2>
+      <table><thead><tr><th>Empresa</th><th class="num">Receita</th><th class="num">Gasto</th><th class="num">Saldo</th><th style="width:34%">Cobertura</th></tr></thead>
+        <tbody id="payBody"></tbody></table>
+      <div class="muted" style="margin-top:8px;">Receita e gasto que passam pelas suas contas. Cobertura = receita ÷ gasto. Verde = se paga; vermelho = está no seu bolso.</div>
+    </div>
+
+    <div class="card">
       <h2>Metas por categoria</h2>
       <div class="muted" style="margin-bottom:10px;" id="metaScope"></div>
       <table><thead><tr><th>Categoria</th><th class="num">Meta / mês</th><th class="num">Realizado</th><th style="width:38%">Progresso</th></tr></thead>
@@ -128,7 +135,7 @@ $("btnLogout").onclick=async()=>{ await sb.auth.signOut(); location.href="index.
 })();
 
 function scope(){ const m=$("fMonth").value,c=$("fCls").value,s=$("fSrc").value;
-  return TX.filter(r=>(!m||ym(r.data)===m)&&(!c||r.cls===c)&&(!s||r.src===s)); }
+  return TX.filter(r=>(r.tipo||'saida')==='saida'&&(!m||ym(r.data)===m)&&(!c||r.cls===c)&&(!s||r.src===s)); }
 function nMonthsScope(){ const m=$("fMonth").value; if(m) return 1; const c=$("fCls").value,s=$("fSrc").value;
   const set=new Set(TX.filter(r=>(!c||r.cls===c)&&(!s||r.src===s)).map(r=>ym(r.data))); return set.size||1; }
 
@@ -143,12 +150,27 @@ function renderAll(){
   $("kNg").textContent=BRL(tot["Não é gasto"]);
   $("kN").textContent=sc.length;
   $("scopeInfo").textContent=`${sc.length} lançamentos`;
-  drawMonthly(); drawCat(sc); drawMetas(sc,nM);
+  drawMonthly(); drawCat(sc); drawPay(); drawMetas(sc,nM);
+}
+function drawPay(){
+  const m=$("fMonth").value,s=$("fSrc").value;
+  const base=TX.filter(r=>(!m||ym(r.data)===m)&&(!s||r.src===s));
+  $("payScope").textContent = m?ymLabel(m):"(período todo)";
+  $("payBody").innerHTML = BIZ.map(b=>{
+    const rec=base.filter(r=>r.cls===b&&(r.tipo||'saida')==='entrada').reduce((a,r)=>a+Number(r.valor),0);
+    const gas=base.filter(r=>r.cls===b&&(r.tipo||'saida')==='saida').reduce((a,r)=>a+Number(r.valor),0);
+    const saldo=rec-gas, ok=saldo>=0, cob=gas>0?rec/gas*100:(rec>0?100:0), pct=Math.min(cob,100);
+    return `<tr><td><span style="display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;background:${PALETTE[BIZ.indexOf(b)]}"></span>${b}</td>
+      <td class="num" style="color:#0f9d58">${BRL(rec)}</td>
+      <td class="num" style="color:#d23f3f">${BRL(gas)}</td>
+      <td class="num" style="color:${ok?'#0f9d58':'#d23f3f'};font-weight:700">${BRL(saldo)}</td>
+      <td><div class="bar"><div style="width:${pct}%;background:${ok?'#0f9d58':'#d23f3f'}"></div></div><span class="muted">${gas>0?Math.round(cob)+'% coberto':(rec>0?'sem gasto':'sem mov.')}</span></td></tr>`;
+  }).join("");
 }
 
 function drawMonthly(){
   const c=$("fCls").value,s=$("fSrc").value;
-  const base=TX.filter(r=>(!c||r.cls===c)&&(!s||r.src===s)&&CUSTO.includes(r.cls));
+  const base=TX.filter(r=>(r.tipo||'saida')==='saida'&&(!c||r.cls===c)&&(!s||r.src===s)&&CUSTO.includes(r.cls));
   const byM={}; MONTHS.forEach(mm=>byM[mm]=0); base.forEach(r=>byM[ym(r.data)]=(byM[ym(r.data)]||0)+Number(r.valor));
   const labels=MONTHS.map(ymLabel), data=MONTHS.map(mm=>byM[mm]||0);
   if(chM) chM.destroy();
