@@ -350,11 +350,17 @@ async function loadPerguntas(){
 async function sendPergunta(){
   const t=$("askText").value.trim(); if(!t) return;
   const nome=($("whoami").textContent.split(' · ')[0])||'';
-  $("btnAsk").disabled=true; $("askMsg").textContent="enviando...";
-  const {error}=await sb.from("perguntas").insert({pergunta:t, autor:nome, autor_id:USER.id});
+  $("btnAsk").disabled=true; $("askMsg").textContent="pensando... 🤔";
+  const ins=await sb.from("perguntas").insert({pergunta:t, autor:nome, autor_id:USER.id}).select("id").single();
+  if(ins.error){ $("btnAsk").disabled=false; $("askMsg").textContent="erro: "+ins.error.message; return; }
+  $("askText").value="";
+  try{
+    const {error}=await sb.functions.invoke("perguntar",{body:{id:ins.data.id, pergunta:t}});
+    if(error) throw error;
+    $("askMsg").textContent="";
+  }catch(e){ $("askMsg").textContent="pergunta salva — resposta em instantes (a função pode ainda não estar publicada)."; }
   $("btnAsk").disabled=false;
-  if(error){ $("askMsg").textContent="erro: "+error.message; return; }
-  $("askText").value=""; $("askMsg").textContent="enviada! ⏳"; await loadPerguntas();
+  await loadPerguntas();
 }
 
 // ---- tabs & filters ----
