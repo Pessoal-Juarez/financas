@@ -110,6 +110,7 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
   <div class="tabs">
     <div class="tab on" data-tab="lanc" data-tipo="saida" id="tabGastos">Gastos</div>
     <div class="tab" data-tab="lanc" data-tipo="entrada" id="tabReceitas">Receitas</div>
+    <div class="tab" data-tab="ask" id="tabAsk">💬 Assistente</div>
     <div class="tab hide" data-tab="aprov" id="tabAprov">Aprovações <span id="pendCount"></span></div>
   </div>
 
@@ -161,6 +162,17 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
         </table>
       </div>
     </div>
+  </div>
+
+  <!-- ASSISTENTE -->
+  <div id="paneAsk" class="hide">
+    <div class="card">
+      <b>Pergunte sobre as finanças</b>
+      <div class="muted" style="margin:4px 0 10px;">Ex.: "quanto gastamos com restaurante em maio?", "a clínica deu lucro?", "qual nosso maior gasto fixo?". O assistente responde em até 1 dia.</div>
+      <textarea id="askText" rows="3" style="width:100%;font-family:inherit;" placeholder="Escreva sua pergunta..."></textarea>
+      <div style="margin-top:8px;"><button class="btn sm" id="btnAsk">Enviar pergunta</button> <span class="muted" id="askMsg"></span></div>
+    </div>
+    <div id="askList"></div>
   </div>
 </div>
 
@@ -324,6 +336,27 @@ async function loadAprov(){
   document.querySelectorAll("[data-re]").forEach(b=> b.onclick=async()=>{ await sb.rpc("recusar_proposta",{p_id:+b.dataset.re}); await loadAll(); });
 }
 
+// ---- ASSISTENTE (perguntas) ----
+function escapeHtml(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+async function loadPerguntas(){
+  const {data,error}=await sb.from("perguntas").select("*").order("criado_em",{ascending:false});
+  if(error){ $("askList").innerHTML=`<div class="card muted">Não consegui carregar (rodou a tabela 'perguntas' no Supabase?). ${error.message}</div>`; return; }
+  $("askList").innerHTML=(data||[]).map(p=>`<div class="card">
+    <div><b>${escapeHtml(p.autor)||'—'}</b> <span class="muted">· ${(p.criado_em||'').slice(0,10)}</span></div>
+    <div style="margin:6px 0;">${escapeHtml(p.pergunta)}</div>
+    ${p.resposta? `<div style="border-top:1px solid var(--border2);padding-top:8px;"><b style="color:#2f6df0">Resposta</b><div style="margin-top:4px;white-space:pre-wrap;">${escapeHtml(p.resposta)}</div></div>` : `<div class="muted">⏳ aguardando resposta...</div>`}
+  </div>`).join("") || `<div class="card muted">Nenhuma pergunta ainda. Faça a primeira acima.</div>`;
+}
+async function sendPergunta(){
+  const t=$("askText").value.trim(); if(!t) return;
+  const nome=($("whoami").textContent.split(' · ')[0])||'';
+  $("btnAsk").disabled=true; $("askMsg").textContent="enviando...";
+  const {error}=await sb.from("perguntas").insert({pergunta:t, autor:nome, autor_id:USER.id});
+  $("btnAsk").disabled=false;
+  if(error){ $("askMsg").textContent="erro: "+error.message; return; }
+  $("askText").value=""; $("askMsg").textContent="enviada! ⏳"; await loadPerguntas();
+}
+
 // ---- tabs & filters ----
 document.querySelectorAll(".tab").forEach(t=> t.onclick=()=>{
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on")); t.classList.add("on");
@@ -331,7 +364,10 @@ document.querySelectorAll(".tab").forEach(t=> t.onclick=()=>{
   if(t.dataset.tipo){ VIEW_TIPO=t.dataset.tipo; recompute(); render(); }
   $("paneLanc").classList.toggle("hide",k!=="lanc");
   $("paneAprov").classList.toggle("hide",k!=="aprov");
+  $("paneAsk").classList.toggle("hide",k!=="ask");
+  if(k==="ask") loadPerguntas();
 });
+$("btnAsk").onclick=sendPergunta;
 ["fMonth","fSrc","fCls","fRev"].forEach(id=>$(id).addEventListener("change",()=>{recompute();render();}));
 $("fSearch").addEventListener("input",render);
 
