@@ -91,7 +91,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
       <div class="kpi"><div class="l">Lançamentos</div><div class="v" id="kN">—</div></div>
     </div>
 
-    <div class="card">
+    <div class="card hide" id="patrCard">
       <h2>Patrimônio & Fôlego</h2>
       <div class="kpis" style="margin-bottom:12px;">
         <div class="kpi"><div class="l">Patrimônio líquido</div><div class="v blue" id="pTotal">—</div><div class="muted">tudo que você tem, menos dívidas</div></div>
@@ -100,6 +100,17 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
       </div>
       <table><thead><tr><th>Onde</th><th class="num">Valor</th><th>Disponível?</th></tr></thead><tbody id="pBody"></tbody></table>
       <div class="muted" id="pNote" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Piso de sobrevivência — fixo vs variável <span class="muted">(custo de vida pessoal, média/mês)</span></h2>
+      <div class="kpis" style="margin-bottom:12px;">
+        <div class="kpi"><div class="l">Fixo (o piso)</div><div class="v" style="color:#d23f3f" id="fvFixo">—</div><div class="muted" id="fvFixoPct"></div></div>
+        <div class="kpi"><div class="l">Variável</div><div class="v" style="color:#f0a93b" id="fvVar">—</div></div>
+        <div class="kpi"><div class="l">Adicional</div><div class="v" style="color:#0f9d58" id="fvAdic">—</div></div>
+      </div>
+      <table><thead><tr><th>Tipo</th><th class="num">Média/mês</th><th>Principais categorias</th></tr></thead><tbody id="fvBody"></tbody></table>
+      <div class="muted" style="margin-top:8px;">Fixo = vem todo mês com valor parecido (o que você PRECISA cobrir). Variável = recorrente mas dá pra reduzir. Adicional = esporádico. Me avise se quiser remapear alguma categoria.</div>
     </div>
 
     <div class="two">
@@ -197,6 +208,7 @@ $("btnLogout").onclick=async()=>{ await sb.auth.signOut(); location.href="index.
   renderAll();
   drawCartao();
   loadPatrimonio();
+  drawFixoVar();
 })();
 
 // ---- gráficos de cartão (parcela a parcela, data da compra, cartão pago) ----
@@ -241,6 +253,8 @@ function drawCartao(){
 // ---- Patrimônio & Fôlego ----
 let PATR=[];
 async function loadPatrimonio(){
+  if(ROLE!=='admin') return; // patrimônio só pro gestor (fica escondido pra Rayane)
+  $("patrCard").classList.remove("hide");
   const {data,error}=await sb.from("patrimonio").select("*").order("ordem");
   if(error){ $("pNote").textContent="Rode o patrimonio.sql no Supabase pra ativar esta seção."; return; }
   PATR=data||[]; drawPatrimonio();
@@ -269,6 +283,28 @@ function drawPatrimonio(){
     await sb.from("patrimonio").update({valor:v,atualizado_em:new Date().toISOString()}).eq("id",id);
     const p=PATR.find(x=>x.id===id); if(p)p.valor=v; drawPatrimonio();
   });
+}
+
+// ---- fixo vs variável (piso de sobrevivência) ----
+const TIER={"Moradia":"Fixo","Secretária/Babá":"Fixo","Telefonia/Internet":"Fixo","Telefonia":"Fixo","Internet":"Fixo","Assinatura":"Fixo","Assinatura/Cloud":"Fixo","Academia":"Fixo","Saúde":"Fixo","Impostos":"Fixo","Contabilidade":"Fixo","Curso":"Fixo","Terapia":"Fixo","Energia":"Fixo","Água":"Fixo","Água (galão)":"Fixo","Gás":"Fixo","Pet":"Fixo","Clínica":"Fixo",
+ "Supermercado":"Variável","Farmácia":"Variável","Combustível":"Variável","Restaurante":"Variável","Transporte":"Variável","Estacionamento":"Variável","Estética/Beleza":"Variável","Barbearia":"Variável","Automotivo":"Variável","Pix pessoas":"Variável",
+ "Viagem":"Adicional","Vestuário":"Adicional","Presentes":"Adicional","Eletrônicos":"Adicional","Lazer":"Adicional","Outros":"Adicional","Internacional":"Adicional","Livraria":"Adicional","Esporte":"Adicional","Revenda/Materiais":"Adicional"};
+function tierOf(c){ return TIER[c]||"Variável"; }
+function drawFixoVar(){
+  const CUSTO=["Pessoal família","Pessoal Juarez","Pessoal Rayane"];
+  const inCusto=r=>(r.tipo||'saida')==='saida'&&CUSTO.includes(r.cls);
+  const months=[...new Set(TX.filter(inCusto).map(r=>ym(r.data)))].sort();
+  const msc=months.length>1?months.slice(0,-1):months; const n=msc.length||1; const set=new Set(msc);
+  const med={Fixo:0,"Variável":0,Adicional:0}, byCat={Fixo:{},"Variável":{},Adicional:{}};
+  TX.forEach(r=>{ if(!inCusto(r)||!set.has(ym(r.data)))return; const t=tierOf(r.categoria); med[t]+=Number(r.valor); const c=r.categoria||'(sem cat)'; byCat[t][c]=(byCat[t][c]||0)+Number(r.valor); });
+  Object.keys(med).forEach(t=>med[t]/=n);
+  const tot=med.Fixo+med["Variável"]+med.Adicional;
+  $("fvFixo").textContent=BRL(med.Fixo); $("fvVar").textContent=BRL(med["Variável"]); $("fvAdic").textContent=BRL(med.Adicional);
+  $("fvFixoPct").textContent=tot?Math.round(100*med.Fixo/tot)+"% do custo de vida":"";
+  $("fvBody").innerHTML=["Fixo","Variável","Adicional"].map(t=>{
+    const cats=Object.entries(byCat[t]).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([c,v])=>c+" "+BRL(v/n)).join(" · ");
+    return `<tr><td><b>${t}</b></td><td class="num">${BRL(med[t])}</td><td class="muted">${cats||'—'}</td></tr>`;
+  }).join("");
 }
 
 function scope(){ const m=$("fMonth").value,c=$("fCls").value,s=$("fSrc").value;
