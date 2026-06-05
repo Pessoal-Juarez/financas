@@ -91,6 +91,17 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
       <div class="kpi"><div class="l">Lançamentos</div><div class="v" id="kN">—</div></div>
     </div>
 
+    <div class="card">
+      <h2>Patrimônio & Fôlego</h2>
+      <div class="kpis" style="margin-bottom:12px;">
+        <div class="kpi"><div class="l">Patrimônio líquido</div><div class="v blue" id="pTotal">—</div><div class="muted">tudo que você tem, menos dívidas</div></div>
+        <div class="kpi"><div class="l">Reserva disponível</div><div class="v" id="pDisp">—</div><div class="muted">o que dá pra usar (sem o que está preso)</div></div>
+        <div class="kpi"><div class="l">Fôlego</div><div class="v" id="pFolego">—</div><div class="muted" id="pFolegoSub"></div></div>
+      </div>
+      <table><thead><tr><th>Onde</th><th class="num">Valor</th><th>Disponível?</th></tr></thead><tbody id="pBody"></tbody></table>
+      <div class="muted" id="pNote" style="margin-top:8px;"></div>
+    </div>
+
     <div class="two">
       <div class="card"><h2>Custo de vida por mês</h2><canvas id="chMonthly" height="220"></canvas></div>
       <div class="card"><h2>Para onde vai (por categoria)</h2><canvas id="chCat" height="220"></canvas></div>
@@ -178,6 +189,7 @@ $("btnLogout").onclick=async()=>{ await sb.auth.signOut(); location.href="index.
   $("btnAddMeta").onclick=addMeta;
   renderAll();
   drawCartao();
+  loadPatrimonio();
 })();
 
 // ---- gráficos de cartão (parcela a parcela, data da compra, cartão pago) ----
@@ -217,6 +229,39 @@ function drawCartao(){
   chPP=mkChart(chPP,"chPP",labels,MONTHS.map(m=>Math.round(pp[m])),"#2f6df0cc");
   chCompra=mkChart(chCompra,"chCompra",labels,MONTHS.map(m=>Math.round(cp[m])),"#7a5cf0cc");
   chPago=mkChart(chPago,"chPago",labels,MONTHS.map(m=>Math.round(pg[m])),"#0f9d58cc");
+}
+
+// ---- Patrimônio & Fôlego ----
+let PATR=[];
+async function loadPatrimonio(){
+  const {data,error}=await sb.from("patrimonio").select("*").order("ordem");
+  if(error){ $("pNote").textContent="Rode o patrimonio.sql no Supabase pra ativar esta seção."; return; }
+  PATR=data||[]; drawPatrimonio();
+}
+function custoMedioMensal(){
+  const byM={}; TX.forEach(r=>{ if((r.tipo||'saida')==='saida' && CUSTO.includes(r.cls)){ const m=ym(r.data); byM[m]=(byM[m]||0)+Number(r.valor); } });
+  let ms=Object.keys(byM).sort(); if(ms.length>1) ms=ms.slice(0,-1); // tira mês corrente parcial
+  if(!ms.length) return 0;
+  return ms.reduce((a,m)=>a+byM[m],0)/ms.length;
+}
+function drawPatrimonio(){
+  const total=PATR.reduce((a,p)=>a+Number(p.valor),0);
+  const disp=PATR.filter(p=>p.liquido).reduce((a,p)=>a+Number(p.valor),0);
+  const burn=custoMedioMensal(), meses=burn>0?disp/burn:0;
+  $("pTotal").textContent=BRL(total);
+  $("pDisp").textContent=BRL(disp);
+  $("pFolego").textContent=burn>0?(meses.toFixed(1)+" meses"):"—";
+  $("pFolego").style.color=meses>=12?"#0f9d58":(meses>=6?"#f0a93b":"#d23f3f");
+  $("pFolegoSub").textContent=burn>0?("custo de vida ≈ "+BRL(burn)+"/mês"):"";
+  $("pBody").innerHTML=PATR.map(p=>`<tr><td>${p.nome}</td>
+    <td class="num">${ROLE==='admin'?`<input type="number" class="metaInput" data-pid="${p.id}" value="${p.valor}">`:BRL(Number(p.valor))}</td>
+    <td>${p.liquido?'<span style="color:#0f9d58">sim</span>':'<span class="muted">preso</span>'}</td></tr>`).join("");
+  $("pNote").textContent="Fôlego = reserva disponível ÷ custo de vida mensal. Verde ≥12 meses · amarelo ≥6 · vermelho <6. Atualize os saldos quando mudarem.";
+  if(ROLE==='admin') document.querySelectorAll("input.metaInput[data-pid]").forEach(inp=> inp.onchange=async e=>{
+    const id=+e.target.dataset.pid, v=parseFloat(e.target.value)||0;
+    await sb.from("patrimonio").update({valor:v,atualizado_em:new Date().toISOString()}).eq("id",id);
+    const p=PATR.find(x=>x.id===id); if(p)p.valor=v; drawPatrimonio();
+  });
 }
 
 function scope(){ const m=$("fMonth").value,c=$("fCls").value,s=$("fSrc").value;
