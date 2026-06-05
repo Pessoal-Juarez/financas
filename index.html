@@ -161,8 +161,8 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
   <!-- APROVAÇÕES (admin) -->
   <div id="paneAprov" class="hide">
     <div class="card">
-      <b>Alterações da Rayane</b>
-      <div class="muted" style="margin:4px 0 8px;">Histórico do que a Rayane mudou. Salva na hora — você só acompanha.</div>
+      <b>Alterações da Raiane</b>
+      <div class="muted" style="margin:4px 0 8px;">Histórico do que a Raiane mudou. Salva na hora — você só acompanha.</div>
       <div class="tablebox" style="margin-top:10px;">
         <table>
           <thead><tr><th>Quando</th><th>Quem</th><th>Lançamento</th><th>Mudança</th></tr></thead>
@@ -209,11 +209,11 @@ const SUPABASE_URL = "https://urlxbgngcncndtnhyqyf.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVybHhiZ25nY25jbmR0bmh5cXlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MTA3MDksImV4cCI6MjA5NjA4NjcwOX0.nQ58KRAnw1MpxYMW_EUXVeiC8aFQRyye5uvi7FWaa6Y";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
-const OPTIONS = ["Pessoal família","Pessoal Juarez","Pessoal Rayane","Dra. Rayane","Slim Fit","Rai Móveis","OQV","Empréstimo","Não é gasto","Indefinido"];
-const COLAB_CLASSES = ["Indefinido","Slim Fit","Dra. Rayane","Pessoal Rayane"];
-const COLORS = {"Pessoal família":"#2f6df0","Pessoal Juarez":"#0f9d58","Pessoal Rayane":"#e36fae","Dra. Rayane":"#b5560e","Slim Fit":"#7a5cf0","Rai Móveis":"#c2410c","OQV":"#127c8a","Empréstimo":"#d98c00","Não é gasto":"#9aa3b2","Indefinido":"#d23f3f"};
-const CUSTO = ["Pessoal família","Pessoal Juarez","Pessoal Rayane"];
-const BIZ = ["Dra. Rayane","Slim Fit","Rai Móveis","OQV"];
+const OPTIONS = ["Pessoal família","Pessoal Juarez","Pessoal Raiane","Dra. Raiane","Slim Fit","Rai Móveis","OQV","Empréstimo","Não é gasto","Indefinido"];
+const COLAB_CLASSES = ["Indefinido","Slim Fit","Dra. Raiane","Pessoal Raiane"];
+const COLORS = {"Pessoal família":"#2f6df0","Pessoal Juarez":"#0f9d58","Pessoal Raiane":"#e36fae","Dra. Raiane":"#b5560e","Slim Fit":"#7a5cf0","Rai Móveis":"#c2410c","OQV":"#127c8a","Empréstimo":"#d98c00","Não é gasto":"#9aa3b2","Indefinido":"#d23f3f"};
+const CUSTO = ["Pessoal família","Pessoal Juarez","Pessoal Raiane"];
+const BIZ = ["Dra. Raiane","Slim Fit","Rai Móveis","OQV"];
 const CATLIST = ["Supermercado","Restaurante","Farmácia","Combustível","Moradia","Energia","Água","Gás","Telefonia","Secretária/Babá","Água (galão)","Saúde","Pet","Estética/Beleza","Clínica","Curso","Vestuário","Embalagens","Revenda móveis","Assinatura","Academia","Barbearia","Transporte","Impostos","Contabilidade","Investimento","Transfer. própria","Carro/Grande","Pix pessoas","Indefinido","Outros"];
 const QUEM = ["?","Juarez","Raiane"];
 const MES={"01":"Jan","02":"Fev","03":"Mar","04":"Abr","05":"Mai","06":"Jun","07":"Jul","08":"Ago","09":"Set","10":"Out","11":"Nov","12":"Dez"};
@@ -249,7 +249,7 @@ async function boot(){
   if(ROLE==="admin"){ $("tabAprov").classList.remove("hide"); $("tabOqv").classList.remove("hide"); }
   $("roleNote").textContent = ROLE==="admin"
     ? "Você é gestor: suas mudanças de classificação salvam na hora e viram regra automática."
-    : "Suas mudanças salvam na hora; o Juarez é avisado do que você alterou.";
+    : "Suas mudanças de classificação salvam na hora.";
   await loadAll();
   startNotifs();
 }
@@ -270,6 +270,8 @@ async function loadAll(){
   const {data:tx, error} = await fetchAllTx();
   if(error){ alert("Erro ao carregar: "+error.message); return; }
   TX = tx||[];
+  // OQV e contas PJ (BTG/Nubank/InfinitePay) só pro gestor
+  if(ROLE!=='admin') TX = TX.filter(r=> r.cls!=='OQV' && !/^(BTG|Nubank|Infinit)/i.test(r.src||''));
   // pendentes
   const {data:props} = await sb.from("proposals").select("*").eq("status","pendente");
   PEND={}; (props||[]).forEach(p=> PEND[p.transaction_id]=p);
@@ -295,10 +297,10 @@ function recompute(){
   const ent = VIEW_TIPO==="entrada";
   $("custoLbl").textContent = (ent?"RECEITA PESSOAL/FAMÍLIA":"CUSTO DE VIDA")+(m?" — "+ymLabel(m):" — soma do período");
   $("custoVida").textContent = BRL(custo);
-  $("custoSub").textContent = m? "família "+BRL(tot["Pessoal família"])+" · Juarez "+BRL(tot["Pessoal Juarez"])+" · Rayane "+BRL(tot["Pessoal Rayane"]) : "média ≈ "+BRL(custo/nMonths)+"/mês";
+  $("custoSub").textContent = m? "família "+BRL(tot["Pessoal família"])+" · Juarez "+BRL(tot["Pessoal Juarez"])+" · Raiane "+BRL(tot["Pessoal Raiane"]) : "média ≈ "+BRL(custo/nMonths)+"/mês";
   $("bizLbl").textContent = ent?"RECEITA DAS EMPRESAS":"GASTOS DAS EMPRESAS";
   $("bizTot").textContent = BRL(biz);
-  $("bizSub").textContent = "Dra. Rayane "+BRL(tot["Dra. Rayane"])+" · Slim Fit "+BRL(tot["Slim Fit"])+" · Rai Móveis "+BRL(tot["Rai Móveis"])+" · OQV "+BRL(tot["OQV"]);
+  $("bizSub").textContent = "Dra. Raiane "+BRL(tot["Dra. Raiane"])+" · Slim Fit "+BRL(tot["Slim Fit"])+" · Rai Móveis "+BRL(tot["Rai Móveis"])+" · OQV "+BRL(tot["OQV"]);
   $("sumGrid").innerHTML = OPTIONS.map(o=>`<div class="sline"><span><span class="dot" style="background:${COLORS[o]}"></span>${o}</span><b>${BRL(tot[o])}</b></div>`).join("");
 }
 
@@ -388,7 +390,7 @@ function renderOqv(){
 
 // ---- ASSISTENTE (perguntas) ----
 function escapeHtml(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
-// ---- aprendizado: salva regra de classificação + registra alteração da Rayane ----
+// ---- aprendizado: salva regra de classificação + registra alteração da Raiane ----
 function normMerch(s){ return (s||'').normalize('NFKD').replace(/[^A-Za-z]/g,'').toUpperCase().slice(0,18); }
 async function salvarRegra(desc, categoria, cls){
   if(cls==='Empréstimo' || cls==='Indefinido') return; // empréstimo é por pessoa, não vira regra de estabelecimento
@@ -397,7 +399,7 @@ async function salvarRegra(desc, categoria, cls){
 }
 async function logAlteracao(t, campo, de, para){
   if(ROLE==='admin') return; // só registra as mudanças da colaboradora
-  const autor=(($("whoami").textContent.split(' · ')[0])||'Rayane');
+  const autor=(($("whoami").textContent.split(' · ')[0])||'Raiane');
   try{ await sb.from('log_alteracoes').insert({autor, tx_id:t.id, descricao:t.descricao, campo, de:de||'', para:para||''}); }catch(e){}
 }
 async function loadPerguntas(){
@@ -469,13 +471,13 @@ async function checkNotifs(){
   if(ROLE==="admin"){
     const {data:lg}=await sb.from("log_alteracoes").select("id,descricao,campo,de,para").order("id",{ascending:false}).limit(40);
     const seenP=seenGet("seenAlt");
-    (lg||[]).forEach(p=>{ if(!seenP.includes(p.id)) novos.push({k:"alt",id:p.id,txt:"✏️ Rayane: "+((p.descricao||"").slice(0,20))+" — "+(p.de||"—")+"→"+(p.para||"")}); });
+    (lg||[]).forEach(p=>{ if(!seenP.includes(p.id)) novos.push({k:"alt",id:p.id,txt:"✏️ Raiane: "+((p.descricao||"").slice(0,20))+" — "+(p.de||"—")+"→"+(p.para||"")}); });
   }
   if(novos.length){
     NOTIFS=novos.concat(NOTIFS).slice(0,30);
     const bb=$("bellBadge"); bb.textContent=NOTIFS.length>9?"9+":NOTIFS.length; bb.classList.remove("hide");
     const ans=novos.filter(x=>x.k==="ans").length, ap=novos.filter(x=>x.k==="alt").length;
-    const m=(ans?ans+" resposta"+(ans>1?"s":""):"")+(ans&&ap?" · ":"")+(ap?ap+" alteração"+(ap>1?"ões":"")+" da Rayane":"");
+    const m=(ans?ans+" resposta"+(ans>1?"s":""):"")+(ans&&ap?" · ":"")+(ap?ap+" alteração"+(ap>1?"ões":"")+" da Raiane":"");
     toast("🔔 "+m); notify(m);
   }
   renderPop();

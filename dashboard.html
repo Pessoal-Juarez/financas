@@ -183,9 +183,9 @@ const sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON);
 if(window.Chart){ Chart.defaults.color='#8a93a3'; Chart.defaults.borderColor='rgba(140,150,160,.15)'; }
 (function(){ const ts=document.getElementById("theme"); if(ts){ ts.value=localStorage.getItem('tema')||'system'; ts.onchange=e=>{ document.documentElement.setAttribute('data-theme', e.target.value); localStorage.setItem('tema', e.target.value); }; } })();
 
-const CUSTO=["Pessoal família","Pessoal Juarez","Pessoal Rayane"];
-const BIZ=["Dra. Rayane","Slim Fit","Rai Móveis","OQV"];
-const OPTIONS=["Pessoal família","Pessoal Juarez","Pessoal Rayane","Dra. Rayane","Slim Fit","Rai Móveis","OQV","Empréstimo","Não é gasto","Indefinido"];
+const CUSTO=["Pessoal família","Pessoal Juarez","Pessoal Raiane"];
+const BIZ=["Dra. Raiane","Slim Fit","Rai Móveis","OQV"];
+const OPTIONS=["Pessoal família","Pessoal Juarez","Pessoal Raiane","Dra. Raiane","Slim Fit","Rai Móveis","OQV","Empréstimo","Não é gasto","Indefinido"];
 const PALETTE=["#2f6df0","#0f9d58","#e36fae","#b5560e","#7a5cf0","#c2410c","#127c8a","#f0a93b","#34b3a0","#e8643c","#9aa3b2","#6b7686"];
 const MES={"01":"Jan","02":"Fev","03":"Mar","04":"Abr","05":"Mai","06":"Jun","07":"Jul","08":"Ago","09":"Set","10":"Out","11":"Nov","12":"Dez"};
 const BRL=n=>"R$ "+(n||0).toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0});
@@ -211,6 +211,7 @@ $("btnLogout").onclick=async()=>{ await sb.auth.signOut(); location.href="index.
     _from+=1000;
   }
   TX=TXa;
+  if(ROLE!=='admin') TX=TX.filter(r=> r.cls!=='OQV' && !/^(BTG|Nubank|Infinit)/i.test(r.src||''));
   const {data:metas}=await sb.from("metas").select("*").order("categoria");
   METAS=metas||[];
   MONTHS=[...new Set(TX.map(r=>ym(r.data)))].sort();
@@ -218,7 +219,7 @@ $("btnLogout").onclick=async()=>{ await sb.auth.signOut(); location.href="index.
   $("fCls").innerHTML=`<option value="">Classificação: todas</option>`+OPTIONS.map(o=>`<option>${o}</option>`).join("");
   const cats=[...new Set(TX.map(r=>r.categoria).filter(Boolean))].sort();
   const dl=document.createElement("datalist"); dl.id="catlist"; dl.innerHTML=cats.map(c=>`<option value="${c}">`).join(""); document.body.appendChild(dl);
-  if(ROLE==="admin"){ $("addMetaWrap").classList.remove("hide"); }
+  $("addMetaWrap").classList.remove("hide");
   ["fMonth","fCls","fSrc"].forEach(id=>$(id).addEventListener("change",renderAll));
   $("btnAddMeta").onclick=addMeta;
   renderAll();
@@ -261,7 +262,7 @@ function drawCartao(){
   });
   // 3) cartão pago (linhas marcadas como Pagamento cartão)
   const pg={}; MONTHS.forEach(m=>pg[m]=0);
-  TX.forEach(r=>{ if(r.categoria==='Pagamento cartão'){ const m=ym(r.data); if(m in pg) pg[m]+=Number(r.valor); } });
+  TX.forEach(r=>{ if(r.categoria==='Pagamento cartão' && /PERS\s*INFINIT/i.test(r.descricao||'')){ const m=ym(r.data); if(m in pg) pg[m]+=Math.abs(Number(r.valor)); } });
   chPP=mkChart(chPP,"chPP",labels,MONTHS.map(m=>Math.round(pp[m])),"#2f6df0cc");
   chCompra=mkChart(chCompra,"chCompra",labels,MONTHS.map(m=>Math.round(cp[m])),"#7a5cf0cc");
   chPago=mkChart(chPago,"chPago",labels,MONTHS.map(m=>Math.round(pg[m])),"#0f9d58cc");
@@ -270,7 +271,7 @@ function drawCartao(){
 // ---- Patrimônio & Fôlego ----
 let PATR=[];
 async function loadPatrimonio(){
-  if(ROLE!=='admin') return; // patrimônio só pro gestor (fica escondido pra Rayane)
+  if(ROLE!=='admin') return; // patrimônio só pro gestor (fica escondido pra Raiane)
   $("patrCard").classList.remove("hide");
   const {data,error}=await sb.from("patrimonio").select("*").order("ordem");
   if(error){ $("pNote").textContent="Rode o patrimonio.sql no Supabase pra ativar esta seção."; return; }
@@ -308,7 +309,7 @@ const TIER={"Moradia":"Fixo","Secretária/Babá":"Fixo","Telefonia/Internet":"Fi
  "Viagem":"Adicional","Vestuário":"Adicional","Presentes":"Adicional","Eletrônicos":"Adicional","Lazer":"Adicional","Outros":"Adicional","Internacional":"Adicional","Livraria":"Adicional","Esporte":"Adicional","Revenda/Materiais":"Adicional"};
 function tierOf(c){ return TIER[c]||"Variável"; }
 function drawFixoVar(){
-  const CUSTO=["Pessoal família","Pessoal Juarez","Pessoal Rayane"];
+  const CUSTO=["Pessoal família","Pessoal Juarez","Pessoal Raiane"];
   const inCusto=r=>(r.tipo||'saida')==='saida'&&CUSTO.includes(r.cls);
   const months=[...new Set(TX.filter(inCusto).map(r=>ym(r.data)))].sort();
   const msc=months.length>1?months.slice(0,-1):months; const n=msc.length||1; const set=new Set(msc);
@@ -405,7 +406,7 @@ function drawPay(){
   const m=$("fMonth").value,s=$("fSrc").value;
   const base=TX.filter(r=>(!m||ym(r.data)===m)&&(!s||r.src===s));
   $("payScope").textContent = m?ymLabel(m):"(período todo)";
-  $("payBody").innerHTML = BIZ.map(b=>{
+  $("payBody").innerHTML = BIZ.filter(b=>ROLE==='admin'||b!=='OQV').map(b=>{
     const rec=base.filter(r=>r.cls===b&&(r.tipo||'saida')==='entrada').reduce((a,r)=>a+Number(r.valor),0);
     const gas=base.filter(r=>r.cls===b&&(r.tipo||'saida')==='saida').reduce((a,r)=>a+Number(r.valor),0);
     const saldo=rec-gas, ok=saldo>=0, cob=gas>0?rec/gas*100:(rec>0?100:0), pct=Math.min(cob,100);
@@ -443,15 +444,13 @@ function drawMetas(sc,nM){
     const goal=Number(meta.valor_mes)||0;
     const pct=goal>0?Math.min(real/goal*100,100):0;
     const over=goal>0&&real>goal;
-    const metaCell= ROLE==="admin"
-      ? `<input type="number" class="metaInput" data-cat="${meta.categoria}" value="${goal}">`
-      : BRL(goal);
+    const metaCell= `<input type="number" class="metaInput" data-cat="${meta.categoria}" value="${goal}">`;
     return `<tr><td>${meta.categoria}</td><td class="num">${metaCell}</td>
       <td class="num" style="color:${over?'#d23f3f':'#1a2230'}">${BRL(real)}</td>
       <td><div class="bar"><div style="width:${pct}%;background:${over?'#d23f3f':'#0f9d58'}"></div></div>
       <span class="muted">${goal>0?Math.round(real/goal*100):0}%</span></td></tr>`;
   }).join("") : `<tr><td colspan="4" class="muted">Nenhuma meta ainda${ROLE==="admin"?" — adicione abaixo.":"."}</td></tr>`;
-  if(ROLE==="admin") document.querySelectorAll("input.metaInput[data-cat]").forEach(inp=> inp.onchange=async e=>{
+  document.querySelectorAll("input.metaInput[data-cat]").forEach(inp=> inp.onchange=async e=>{
     const cat=e.target.dataset.cat, val=parseFloat(e.target.value)||0;
     await sb.from("metas").update({valor_mes:val,updated_at:new Date().toISOString()}).eq("categoria",cat);
     const m=METAS.find(x=>x.categoria===cat); if(m) m.valor_mes=val; renderAll();
