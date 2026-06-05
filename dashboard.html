@@ -158,8 +158,14 @@ $("btnLogout").onclick=async()=>{ await sb.auth.signOut(); location.href="index.
   ROLE=prof?.role||"colab";
   $("gate").classList.add("hide"); $("app").classList.remove("hide");
   $("whoami").textContent=(prof?.nome||USER.email)+" · "+(ROLE==="admin"?"Gestor":"Colaboradora");
-  const {data:tx}=await sb.from("transactions").select("data,src,categoria,valor,cls,tipo,data_compra,parcela,descricao").order("data");
-  TX=tx||[];
+  let TXa=[], _from=0;
+  while(true){
+    const {data:chunk}=await sb.from("transactions").select("data,src,categoria,valor,cls,tipo,data_compra,parcela,descricao").order("data").range(_from,_from+999);
+    TXa=TXa.concat(chunk||[]);
+    if(!chunk||chunk.length<1000) break;
+    _from+=1000;
+  }
+  TX=TXa;
   const {data:metas}=await sb.from("metas").select("*").order("categoria");
   METAS=metas||[];
   MONTHS=[...new Set(TX.map(r=>ym(r.data)))].sort();
