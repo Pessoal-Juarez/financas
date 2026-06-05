@@ -118,6 +118,7 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
     <div class="tab" data-tab="lanc" data-tipo="entrada" id="tabReceitas">Receitas</div>
     <div class="tab" data-tab="ask" id="tabAsk">💬 Assistente</div>
     <div class="tab hide" data-tab="aprov" id="tabAprov">✏️ Alterações <span id="pendCount"></span></div>
+    <div class="tab hide" data-tab="oqv" id="tabOqv">🏢 OQV</div>
   </div>
 
   <!-- LANÇAMENTOS -->
@@ -181,6 +182,24 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
     </div>
     <div id="askList"></div>
   </div>
+
+  <!-- OQV (gestor) -->
+  <div id="paneOqv" class="hide">
+    <div class="split">
+      <div class="card" style="text-align:center;"><div class="muted">RECEITA OQV</div><div id="oqvRec" class="big pos">—</div></div>
+      <div class="card" style="text-align:center;"><div class="muted">GASTO OQV</div><div id="oqvGas" class="big neg">—</div></div>
+    </div>
+    <div class="card" style="text-align:center;"><div class="muted">RESULTADO (receita − gasto)</div><div id="oqvRes" class="big">—</div></div>
+    <div class="card">
+      <div class="tablebox">
+        <table>
+          <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Tipo</th><th class="num">Valor</th><th>Classificação</th></tr></thead>
+          <tbody id="oqvBody"></tbody>
+        </table>
+      </div>
+      <div class="muted" style="margin-top:8px;">Tudo classificado como OQV (gastos e receitas). Quando as contas PJ (Nubank/BTG/InfinitePay) entrarem com origem marcada, isso enche sozinho.</div>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -227,7 +246,7 @@ async function boot(){
   $("whoami").textContent = (prof?.nome||user.email)+" · "+(ROLE==="admin"?"Gestor":"Colaboradora");
   $("loginView").classList.add("hide");
   $("appView").classList.remove("hide");
-  if(ROLE==="admin"){ $("tabAprov").classList.remove("hide"); }
+  if(ROLE==="admin"){ $("tabAprov").classList.remove("hide"); $("tabOqv").classList.remove("hide"); }
   $("roleNote").textContent = ROLE==="admin"
     ? "Você é gestor: suas mudanças de classificação salvam na hora e viram regra automática."
     : "Suas mudanças salvam na hora; o Juarez é avisado do que você alterou.";
@@ -320,7 +339,7 @@ async function onChangeCls(e){
   await logAlteracao(t,"classificação",cur,novo);
   t.cls=novo;
   await salvarRegra(t.descricao, t.categoria, novo);
-  recompute(); render(); toast("✓ salvo");
+  recompute(); render(); renderOqv(); toast("✓ salvo");
 }
 
 async function onChangeCat(e){
@@ -331,7 +350,7 @@ async function onChangeCat(e){
   await logAlteracao(t,"categoria",de,v);
   t.categoria=v;
   await salvarRegra(t.descricao, v, t.cls);
-  toast("✓ salvo");
+  renderOqv(); toast("✓ salvo");
 }
 
 // ---- APROVAÇÕES ----
@@ -343,6 +362,28 @@ async function loadAprov(){
       <td>${escapeHtml(p.descricao||'')}</td>
       <td>${escapeHtml(p.campo||'')}: ${escapeHtml(p.de||'—')} → <b style="color:#2f6df0">${escapeHtml(p.para||'')}</b></td></tr>`).join("")
     || `<tr><td colspan="4" class="muted">Nenhuma alteração ainda.</td></tr>`;
+}
+
+// ---- OQV (gestor) ----
+function renderOqv(){
+  const rows=TX.filter(r=>r.cls==='OQV').sort((a,b)=>b.data.localeCompare(a.data));
+  const rec=rows.filter(r=>(r.tipo||'saida')==='entrada').reduce((a,r)=>a+Number(r.valor),0);
+  const gas=rows.filter(r=>(r.tipo||'saida')==='saida').reduce((a,r)=>a+Number(r.valor),0);
+  $("oqvRec").textContent=BRL(rec); $("oqvGas").textContent=BRL(gas);
+  const res=rec-gas; $("oqvRes").textContent=BRL(res); $("oqvRes").style.color=res>=0?'#0f9d58':'#d23f3f';
+  $("oqvBody").innerHTML = rows.map(r=>{
+    const d=r.data.slice(8,10)+"/"+r.data.slice(5,7)+"/"+r.data.slice(2,4);
+    const ent=(r.tipo||'saida')==='entrada';
+    const opts=OPTIONS.map(o=>`<option value="${o}"${o===r.cls?" selected":""}>${o}</option>`).join("");
+    return `<tr><td class="muted">${d}<div style="font-size:10px">${r.src}</div></td>
+      <td>${r.descricao}</td>
+      <td><input class="cat" list="catlist" data-id="${r.id}" value="${(r.categoria||'').replace(/"/g,'&quot;')}"></td>
+      <td>${ent?'<span class="pos">entrada</span>':'<span class="neg">saída</span>'}</td>
+      <td class="num">${BRL(Number(r.valor))}</td>
+      <td><select class="cls" data-id="${r.id}" data-cur="${r.cls}" style="border-left:4px solid ${COLORS[r.cls]}">${opts}</select></td></tr>`;
+  }).join("") || `<tr><td colspan="6" class="muted">Nada classificado como OQV ainda. Classifique gastos/receitas como "OQV".</td></tr>`;
+  document.querySelectorAll("#paneOqv select.cls").forEach(sel=> sel.onchange=onChangeCls);
+  document.querySelectorAll("#paneOqv input.cat").forEach(inp=> inp.onchange=onChangeCat);
 }
 
 // ---- ASSISTENTE (perguntas) ----
@@ -459,7 +500,9 @@ document.querySelectorAll(".tab").forEach(t=> t.onclick=()=>{
   $("paneLanc").classList.toggle("hide",k!=="lanc");
   $("paneAprov").classList.toggle("hide",k!=="aprov");
   $("paneAsk").classList.toggle("hide",k!=="ask");
+  $("paneOqv").classList.toggle("hide",k!=="oqv");
   if(k==="ask") loadPerguntas();
+  if(k==="oqv") renderOqv();
 });
 $("btnAsk").onclick=sendPergunta;
 ["fMonth","fSrc","fCls","fRev"].forEach(id=>$(id).addEventListener("change",()=>{recompute();render();}));
