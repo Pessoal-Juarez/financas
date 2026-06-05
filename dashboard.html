@@ -113,6 +113,22 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
       <div class="muted" style="margin-top:8px;">Fixo = vem todo mês com valor parecido (o que você PRECISA cobrir). Variável = recorrente mas dá pra reduzir. Adicional = esporádico. Me avise se quiser remapear alguma categoria.</div>
     </div>
 
+    <div class="card">
+      <h2>Controle de parcelamento — horizonte 12 meses</h2>
+      <div class="row" style="margin-bottom:10px;gap:14px;">
+        <span>Renda de referência: R$ <input type="number" id="cfgRenda" class="metaInput"></span>
+        <span>Objetivo p/ parcelas: <input type="number" id="cfgPct" class="metaInput" style="width:64px"> %</span>
+        <span>Provisão: <select id="cfgModo"><option value="parc">só parcelas</option><option value="parcfix">parcelas + gastos fixos</option></select></span>
+      </div>
+      <div class="kpis" style="margin-bottom:12px;">
+        <div class="kpi"><div class="l">Teto de parcelas/mês</div><div class="v blue" id="parcTeto">—</div><div class="muted">renda × objetivo</div></div>
+        <div class="kpi"><div class="l">Já comprometido (próx. mês)</div><div class="v" id="parcComp">—</div></div>
+        <div class="kpi"><div class="l">Saldo pra parcelar</div><div class="v" id="parcSaldo">—</div><div class="muted">quanto ainda cabe/mês</div></div>
+      </div>
+      <canvas id="chParc" height="200"></canvas>
+      <div class="muted" style="margin-top:6px;">Barras = compromisso mensal já assumido (parcelas a vencer). Linha = teto. No "saldo": verde = pode parcelar, vermelho = estourou o objetivo.</div>
+    </div>
+
     <div class="two">
       <div class="card"><h2>Custo de vida por mês</h2><canvas id="chMonthly" height="220"></canvas></div>
       <div class="card"><h2>Para onde vai (por categoria)</h2><canvas id="chCat" height="220"></canvas></div>
@@ -175,7 +191,7 @@ const MES={"01":"Jan","02":"Fev","03":"Mar","04":"Abr","05":"Mai","06":"Jun","07
 const BRL=n=>"R$ "+(n||0).toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0});
 const ym=d=>d.slice(0,7); const ymLabel=s=>MES[s.slice(5,7)]+"/"+s.slice(0,4);
 const $=id=>document.getElementById(id);
-let ROLE="colab",USER=null,TX=[],METAS=[],chM=null,chC=null,MONTHS=[];
+let ROLE="colab",USER=null,TX=[],METAS=[],chM=null,chC=null,MONTHS=[],FIXO_MED=0,chParc=null,CONFIG={renda_ref:8000,pct_parcela:20};
 
 $("btnLogout").onclick=async()=>{ await sb.auth.signOut(); location.href="index.html"; };
 
@@ -209,6 +225,7 @@ $("btnLogout").onclick=async()=>{ await sb.auth.signOut(); location.href="index.
   drawCartao();
   loadPatrimonio();
   drawFixoVar();
+  loadConfig();
 })();
 
 // ---- gráficos de cartão (parcela a parcela, data da compra, cartão pago) ----
@@ -298,6 +315,7 @@ function drawFixoVar(){
   const med={Fixo:0,"Variável":0,Adicional:0}, byCat={Fixo:{},"Variável":{},Adicional:{}};
   TX.forEach(r=>{ if(!inCusto(r)||!set.has(ym(r.data)))return; const t=tierOf(r.categoria); med[t]+=Number(r.valor); const c=r.categoria||'(sem cat)'; byCat[t][c]=(byCat[t][c]||0)+Number(r.valor); });
   Object.keys(med).forEach(t=>med[t]/=n);
+  FIXO_MED=med.Fixo;
   const tot=med.Fixo+med["Variável"]+med.Adicional;
   $("fvFixo").textContent=BRL(med.Fixo); $("fvVar").textContent=BRL(med["Variável"]); $("fvAdic").textContent=BRL(med.Adicional);
   $("fvFixoPct").textContent=tot?Math.round(100*med.Fixo/tot)+"% do custo de vida":"";
@@ -305,6 +323,50 @@ function drawFixoVar(){
     const cats=Object.entries(byCat[t]).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([c,v])=>c+" "+BRL(v/n)).join(" · ");
     return `<tr><td><b>${t}</b></td><td class="num">${BRL(med[t])}</td><td class="muted">${cats||'—'}</td></tr>`;
   }).join("");
+}
+
+// ---- controle de parcelamento (projeção 12 meses) ----
+async function loadConfig(){
+  const {data}=await sb.from("config").select("*");
+  (data||[]).forEach(r=>CONFIG[r.chave]=Number(r.valor));
+  $("cfgRenda").value=CONFIG.renda_ref||0;
+  $("cfgPct").value=CONFIG.pct_parcela||20;
+  $("cfgModo").value=localStorage.getItem("provModo")||"parc";
+  const save=async(chave,val)=>{ if(ROLE==='admin'){ await sb.from("config").upsert({chave,valor:val,atualizado_em:new Date().toISOString()},{onConflict:'chave'}); } CONFIG[chave]=val; };
+  $("cfgRenda").onchange=async e=>{ await save('renda_ref',parseFloat(e.target.value)||0); drawParcelas(); };
+  $("cfgPct").onchange=async e=>{ await save('pct_parcela',parseFloat(e.target.value)||0); drawParcelas(); };
+  $("cfgModo").onchange=e=>{ localStorage.setItem("provModo",e.target.value); drawParcelas(); };
+  if(ROLE!=='admin'){ $("cfgRenda").disabled=true; $("cfgPct").disabled=true; }
+  drawParcelas();
+}
+function proximos12(){
+  const allM=[...new Set(TX.map(r=>ym(r.data)))].sort(); const last=allM[allM.length-1]||"2026-06";
+  let [y,mo]=last.split('-').map(Number); const months=[];
+  for(let i=0;i<12;i++){ mo++; if(mo>12){mo=1;y++;} months.push(y+'-'+String(mo).padStart(2,'0')); }
+  return months;
+}
+function projecaoParcelas(){
+  const purch={};
+  TX.forEach(r=>{ if(r.src==='Cartão' && r.parcela){ const a=r.parcela.split('/'); const pp=+a[0],tt=+a[1]; if(!tt)return; const key=(r.data_compra||r.data)+'|'+(r.descricao||'')+'|'+r.valor+'|'+tt; const m=ym(r.data); if(!purch[key]||pp>purch[key].maxpp) purch[key]={tt,valor:Math.abs(Number(r.valor)),maxpp:pp,month:m}; } });
+  const months=proximos12(); const fut={}; months.forEach(m=>fut[m]=0);
+  Object.values(purch).forEach(p=>{ const rem=p.tt-p.maxpp; if(rem<=0)return; let [yy,mm]=p.month.split('-').map(Number); for(let k=1;k<=rem;k++){ mm++; if(mm>12){mm=1;yy++;} const key=yy+'-'+String(mm).padStart(2,'0'); if(key in fut) fut[key]+=p.valor; } });
+  return {months,fut};
+}
+function drawParcelas(){
+  const {months,fut}=projecaoParcelas();
+  const teto=(CONFIG.renda_ref||0)*(CONFIG.pct_parcela||0)/100;
+  const parc=months.map(m=>Math.round(fut[m]));
+  const comp=parc[0]||0, saldo=teto-comp;
+  $("parcTeto").textContent=BRL(teto);
+  $("parcComp").textContent=BRL(comp);
+  $("parcSaldo").textContent=BRL(saldo);
+  $("parcSaldo").style.color=saldo>=0?"#0f9d58":"#d23f3f";
+  const modo=$("cfgModo").value, labels=months.map(ymLabel);
+  const ds=[{type:"bar",label:"parcelas",data:parc,backgroundColor:"#7a5cf0cc",order:3}];
+  if(modo==="parcfix"){ ds.push({type:"bar",label:"gastos fixos",data:months.map(()=>Math.round(FIXO_MED)),backgroundColor:"#2f6df0aa",order:4}); }
+  ds.push({type:"line",label:"teto parcelas",data:months.map(()=>Math.round(teto)),borderColor:"#d23f3f",borderDash:[6,4],borderWidth:2,pointRadius:0,order:1});
+  if(chParc) chParc.destroy();
+  chParc=new Chart($("chParc"),{data:{labels,datasets:ds},options:{plugins:{legend:{display:true,labels:{boxWidth:10,font:{size:10}}},tooltip:{callbacks:{label:x=>x.dataset.label+": "+BRL(x.parsed.y)}}},scales:{x:{stacked:modo==="parcfix"},y:{stacked:modo==="parcfix",ticks:{callback:v=>"R$ "+Math.round(v/1000)+"k"}}}}});
 }
 
 function scope(){ const m=$("fMonth").value,c=$("fCls").value,s=$("fSrc").value;
