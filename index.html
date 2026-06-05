@@ -258,7 +258,7 @@ async function fetchAllTx(){
   // PostgREST limita 1000 linhas/consulta — pagina de 1000 em 1000
   let all=[], from=0;
   while(true){
-    const {data:chunk,error}=await sb.from("transactions").select("*").order("data",{ascending:false}).range(from,from+999);
+    const {data:chunk,error}=await sb.from("transactions").select("*").order("data",{ascending:false}).order("id",{ascending:false}).range(from,from+999);
     if(error) return {error};
     all=all.concat(chunk||[]);
     if(!chunk||chunk.length<1000) break;
