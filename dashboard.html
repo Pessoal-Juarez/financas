@@ -96,6 +96,19 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
       <div class="card"><h2>Para onde vai (por categoria)</h2><canvas id="chCat" height="220"></canvas></div>
     </div>
 
+    <div class="two">
+      <div class="card"><h2>Gasto mensal — parcela a parcela</h2><canvas id="chPP" height="220"></canvas>
+        <div class="muted" style="margin-top:6px;">Cada parcela cai no mês em que entra na fatura. <b style="color:#f0a93b">laranja</b> = média 3 meses · <b style="color:#d23f3f">vermelho tracejado</b> = tendência.</div></div>
+      <div class="card"><h2>Gasto mensal — pela data da compra</h2><canvas id="chCompra" height="220"></canvas>
+        <div class="muted" style="margin-top:6px;">Parcelados entram com o <b>valor cheio</b> no mês da compra. As pontas podem ficar incompletas (parcelados que cruzam a janela de 13 meses).</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Cartão pago por mês <span class="muted">(o que saiu da conta pra quitar a fatura)</span></h2>
+      <canvas id="chPago" height="180"></canvas>
+      <div class="muted" style="margin-top:6px;">Visão de caixa: valor debitado pra pagar a fatura, mês a mês, com média 3m e tendência.</div>
+    </div>
+
     <div class="card">
       <h2>As empresas se pagam? <span class="muted" id="payScope"></span></h2>
       <table><thead><tr><th>Empresa</th><th class="num">Receita</th><th class="num">Gasto</th><th class="num">Saldo</th><th style="width:34%">Cobertura</th></tr></thead>
@@ -145,7 +158,7 @@ $("btnLogout").onclick=async()=>{ await sb.auth.signOut(); location.href="index.
   ROLE=prof?.role||"colab";
   $("gate").classList.add("hide"); $("app").classList.remove("hide");
   $("whoami").textContent=(prof?.nome||USER.email)+" · "+(ROLE==="admin"?"Gestor":"Colaboradora");
-  const {data:tx}=await sb.from("transactions").select("data,src,categoria,valor,cls").order("data");
+  const {data:tx}=await sb.from("transactions").select("data,src,categoria,valor,cls,tipo,data_compra,parcela,descricao").order("data");
   TX=tx||[];
   const {data:metas}=await sb.from("metas").select("*").order("categoria");
   METAS=metas||[];
@@ -158,7 +171,47 @@ $("btnLogout").onclick=async()=>{ await sb.auth.signOut(); location.href="index.
   ["fMonth","fCls","fSrc"].forEach(id=>$(id).addEventListener("change",renderAll));
   $("btnAddMeta").onclick=addMeta;
   renderAll();
+  drawCartao();
 })();
+
+// ---- gráficos de cartão (parcela a parcela, data da compra, cartão pago) ----
+function movAvg(a,w){ return a.map((_,i)=>{ const s=a.slice(Math.max(0,i-w+1),i+1); return s.reduce((x,y)=>x+y,0)/s.length; }); }
+function linFit(a){ const n=a.length; if(n<2) return a.slice();
+  let sx=0,sy=0,sxx=0,sxy=0; a.forEach((y,x)=>{sx+=x;sy+=y;sxx+=x*x;sxy+=x*y;});
+  const b=(n*sxy-sx*sy)/(n*sxx-sx*sx||1), c=(sy-b*sx)/n; return a.map((_,x)=>c+b*x); }
+let chPP=null,chCompra=null,chPago=null;
+function mkChart(old,id,labels,data,color){
+  if(old) old.destroy();
+  return new Chart($(id),{data:{labels,datasets:[
+    {type:"bar",label:"valor",data,backgroundColor:color,order:3},
+    {type:"line",label:"média 3m",data:movAvg(data,3),borderColor:"#f0a93b",borderWidth:2,pointRadius:0,tension:.3,order:1},
+    {type:"line",label:"tendência",data:linFit(data),borderColor:"#d23f3f",borderDash:[6,4],borderWidth:2,pointRadius:0,order:2}
+  ]},options:{plugins:{legend:{display:true,labels:{boxWidth:10,font:{size:10}}},tooltip:{callbacks:{label:x=>x.dataset.label+": "+BRL(x.parsed.y)}}},scales:{y:{ticks:{callback:v=>"R$ "+Math.round(v/1000)+"k"}}}}});
+}
+function drawCartao(){
+  if(!MONTHS.length) return;
+  const labels=MONTHS.map(ymLabel), inWin=new Set(MONTHS);
+  const real=r=>(r.tipo||'saida')==='saida' && r.cls!=='Não é gasto';
+  // 1) parcela a parcela (gasto real por mês de competência)
+  const pp={}; MONTHS.forEach(m=>pp[m]=0);
+  TX.forEach(r=>{ if(real(r)){ const m=ym(r.data); if(m in pp) pp[m]+=Number(r.valor); } });
+  // 2) pela data da compra (valor cheio, dedup parcelas, corta as pontas fora da janela)
+  const cp={}; MONTHS.forEach(m=>cp[m]=0); const seen=new Set();
+  TX.forEach(r=>{ if(!real(r)) return;
+    if(r.src==='Cartão' && r.parcela){
+      const tt=parseInt((r.parcela.split('/')[1])||'1'); const dc=r.data_compra||r.data; const m=ym(dc);
+      const key=dc+'|'+(r.descricao||'')+'|'+tt+'|'+r.valor;
+      if(seen.has(key)) return; seen.add(key);
+      if(inWin.has(m)) cp[m]+=Number(r.valor)*tt;
+    } else { const m=ym(r.data_compra||r.data); if(m in cp) cp[m]+=Number(r.valor); }
+  });
+  // 3) cartão pago (linhas marcadas como Pagamento cartão)
+  const pg={}; MONTHS.forEach(m=>pg[m]=0);
+  TX.forEach(r=>{ if(r.categoria==='Pagamento cartão'){ const m=ym(r.data); if(m in pg) pg[m]+=Number(r.valor); } });
+  chPP=mkChart(chPP,"chPP",labels,MONTHS.map(m=>Math.round(pp[m])),"#2f6df0cc");
+  chCompra=mkChart(chCompra,"chCompra",labels,MONTHS.map(m=>Math.round(cp[m])),"#7a5cf0cc");
+  chPago=mkChart(chPago,"chPago",labels,MONTHS.map(m=>Math.round(pg[m])),"#0f9d58cc");
+}
 
 function scope(){ const m=$("fMonth").value,c=$("fCls").value,s=$("fSrc").value;
   return TX.filter(r=>(r.tipo||'saida')==='saida'&&(!m||ym(r.data)===m)&&(!c||r.cls===c)&&(!s||r.src===s)); }
