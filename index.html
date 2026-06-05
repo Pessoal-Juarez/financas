@@ -117,7 +117,7 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
     <div class="tab on" data-tab="lanc" data-tipo="saida" id="tabGastos">Gastos</div>
     <div class="tab" data-tab="lanc" data-tipo="entrada" id="tabReceitas">Receitas</div>
     <div class="tab" data-tab="ask" id="tabAsk">💬 Assistente</div>
-    <div class="tab hide" data-tab="aprov" id="tabAprov">Aprovações <span id="pendCount"></span></div>
+    <div class="tab hide" data-tab="aprov" id="tabAprov">✏️ Alterações <span id="pendCount"></span></div>
   </div>
 
   <!-- LANÇAMENTOS -->
@@ -160,10 +160,11 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
   <!-- APROVAÇÕES (admin) -->
   <div id="paneAprov" class="hide">
     <div class="card">
-      <b>Pendentes de aprovação</b>
+      <b>Alterações da Rayane</b>
+      <div class="muted" style="margin:4px 0 8px;">Histórico do que a Rayane mudou. Salva na hora — você só acompanha.</div>
       <div class="tablebox" style="margin-top:10px;">
         <table>
-          <thead><tr><th>Quando</th><th>Lançamento</th><th class="num">Valor</th><th>De → Para</th><th></th></tr></thead>
+          <thead><tr><th>Quando</th><th>Quem</th><th>Lançamento</th><th>Mudança</th></tr></thead>
           <tbody id="aprovBody"></tbody>
         </table>
       </div>
@@ -228,8 +229,8 @@ async function boot(){
   $("appView").classList.remove("hide");
   if(ROLE==="admin"){ $("tabAprov").classList.remove("hide"); }
   $("roleNote").textContent = ROLE==="admin"
-    ? "Você é gestor: suas mudanças de classificação salvam na hora."
-    : "Suas mudanças nas classes da clínica/Slim Fit/Rai/Indefinido entram como pendentes até o Juarez aprovar.";
+    ? "Você é gestor: suas mudanças de classificação salvam na hora e viram regra automática."
+    : "Suas mudanças salvam na hora; o Juarez é avisado do que você alterou.";
   await loadAll();
   startNotifs();
 }
@@ -289,14 +290,14 @@ function render(){
   if(fr==="pend") rows=rows.filter(r=>PEND[r.id]);
   $("tbody").innerHTML = rows.map(r=>{
     const pend=PEND[r.id];
-    const canEdit = ROLE==="admin" || COLAB_CLASSES.includes(r.cls);
-    const opts=(ROLE==="admin"?OPTIONS:COLAB_CLASSES).map(o=>`<option value="${o}"${o===r.cls?" selected":""}>${o}</option>`).join("");
+    const canEdit = true;
+    const opts=OPTIONS.map(o=>`<option value="${o}"${o===r.cls?" selected":""}>${o}</option>`).join("");
     const cell = pend
       ? `<span class="badge">pendente${pend.para_cls!==r.cls?` → ${pend.para_cls}`:''}${pend.para_categoria?` (cat: ${pend.para_categoria})`:''}</span>`
       : (canEdit? `<select class="cls" data-id="${r.id}" data-cur="${r.cls}" style="border-left:4px solid ${COLORS[r.cls]}">${opts}</select>`
                 : `<span style="border-left:4px solid ${COLORS[r.cls]};padding-left:6px">${r.cls}</span>`);
     const d=r.data.slice(8,10)+"/"+r.data.slice(5,7)+"/"+r.data.slice(2,4);
-    const canEditCat = !pend && (ROLE==="admin" || COLAB_CLASSES.includes(r.cls));
+    const canEditCat = !pend;
     const catCell = canEditCat
       ? `<input class="cat" list="catlist" data-id="${r.id}" value="${(r.categoria||'').replace(/"/g,'&quot;')}">`
       : `<span class="muted">${r.categoria||''}</span>`;
@@ -313,50 +314,50 @@ function render(){
 async function onChangeCls(e){
   const id=+e.target.dataset.id, cur=e.target.dataset.cur, novo=e.target.value;
   if(novo===cur) return;
-  if(ROLE==="admin"){
-    const {error}=await sb.from("transactions").update({cls:novo, updated_by:USER.id, updated_at:new Date().toISOString()}).eq("id",id);
-    if(error){ alert("Erro: "+error.message); return; }
-    const t=TX.find(x=>x.id===id); t.cls=novo;
-    recompute(); render(); toast("✓ salvo");
-  } else {
-    const {error}=await sb.from("proposals").insert({transaction_id:id, de_cls:cur, para_cls:novo, proposta_por:USER.id});
-    if(error){ alert("Não foi possível propor: "+error.message); return; }
-    await loadAll();
-  }
+  const t=TX.find(x=>x.id===id);
+  const {error}=await sb.from("transactions").update({cls:novo, updated_by:USER.id, updated_at:new Date().toISOString()}).eq("id",id);
+  if(error){ alert("Erro: "+error.message); return; }
+  await logAlteracao(t,"classificação",cur,novo);
+  t.cls=novo;
+  await salvarRegra(t.descricao, t.categoria, novo);
+  recompute(); render(); toast("✓ salvo");
 }
 
 async function onChangeCat(e){
   const id=+e.target.dataset.id, v=e.target.value; const t=TX.find(x=>x.id===id);
-  if(ROLE==="admin"){
-    const {error}=await sb.from("transactions").update({categoria:v, updated_by:USER.id, updated_at:new Date().toISOString()}).eq("id",id);
-    if(error){ alert("Erro: "+error.message); return; }
-    t.categoria=v; toast("✓ salvo");
-  } else {
-    const {error}=await sb.from("proposals").insert({transaction_id:id, de_cls:t.cls, para_cls:t.cls, para_categoria:v, proposta_por:USER.id});
-    if(error){ alert("Não foi possível propor: "+error.message); return; }
-    await loadAll();
-  }
+  const de=t.categoria||'';
+  const {error}=await sb.from("transactions").update({categoria:v, updated_by:USER.id, updated_at:new Date().toISOString()}).eq("id",id);
+  if(error){ alert("Erro: "+error.message); return; }
+  await logAlteracao(t,"categoria",de,v);
+  t.categoria=v;
+  await salvarRegra(t.descricao, v, t.cls);
+  toast("✓ salvo");
 }
 
 // ---- APROVAÇÕES ----
 async function loadAprov(){
-  const {data, error}=await sb.from("proposals")
-    .select("*, transactions(descricao,valor,data)").eq("status","pendente").order("criado_em",{ascending:true});
-  if(error){ return; }
-  $("aprovBody").innerHTML = (data||[]).map(p=>{
-    const t=p.transactions||{};
-    return `<tr><td class="muted">${(p.criado_em||'').slice(0,10)}</td>
-      <td>${t.descricao||''}<div class="muted">${(t.data||'').slice(0,10)}</div></td>
-      <td class="num">${BRL(Number(t.valor||0))}</td>
-      <td>${p.de_cls||'?'} → <b>${p.para_cls}</b></td>
-      <td class="row"><button class="btn green sm" data-ap="${p.id}">Aprovar</button> <button class="btn red sm" data-re="${p.id}">Recusar</button></td></tr>`;
-  }).join("") || `<tr><td colspan="5" class="muted">Nada pendente 🎉</td></tr>`;
-  document.querySelectorAll("[data-ap]").forEach(b=> b.onclick=async()=>{ await sb.rpc("aprovar_proposta",{p_id:+b.dataset.ap}); await loadAll(); });
-  document.querySelectorAll("[data-re]").forEach(b=> b.onclick=async()=>{ await sb.rpc("recusar_proposta",{p_id:+b.dataset.re}); await loadAll(); });
+  const {data}=await sb.from("log_alteracoes").select("*").order("id",{ascending:false}).limit(100);
+  $("aprovBody").innerHTML = (data||[]).map(p=>`<tr>
+      <td class="muted">${(p.criado_em||'').slice(0,16).replace('T',' ')}</td>
+      <td>${escapeHtml(p.autor||'')}</td>
+      <td>${escapeHtml(p.descricao||'')}</td>
+      <td>${escapeHtml(p.campo||'')}: ${escapeHtml(p.de||'—')} → <b style="color:#2f6df0">${escapeHtml(p.para||'')}</b></td></tr>`).join("")
+    || `<tr><td colspan="4" class="muted">Nenhuma alteração ainda.</td></tr>`;
 }
 
 // ---- ASSISTENTE (perguntas) ----
 function escapeHtml(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+// ---- aprendizado: salva regra de classificação + registra alteração da Rayane ----
+function normMerch(s){ return (s||'').normalize('NFKD').replace(/[^A-Za-z]/g,'').toUpperCase().slice(0,18); }
+async function salvarRegra(desc, categoria, cls){
+  const p=normMerch(desc); if(p.length<4) return;
+  try{ await sb.from('regras').upsert({padrao:p, categoria:categoria||null, cls}, {onConflict:'padrao'}); }catch(e){}
+}
+async function logAlteracao(t, campo, de, para){
+  if(ROLE==='admin') return; // só registra as mudanças da colaboradora
+  const autor=(($("whoami").textContent.split(' · ')[0])||'Rayane');
+  try{ await sb.from('log_alteracoes').insert({autor, tx_id:t.id, descricao:t.descricao, campo, de:de||'', para:para||''}); }catch(e){}
+}
 async function loadPerguntas(){
   const {data,error}=await sb.from("perguntas").select("*").order("criado_em",{ascending:false});
   if(error){ $("askList").innerHTML=`<div class="card muted">Não consegui carregar (rodou a tabela 'perguntas' no Supabase?). ${error.message}</div>`; return; }
@@ -424,15 +425,15 @@ async function checkNotifs(){
   (resp||[]).forEach(p=>{ if(!seenA.includes(p.id)) novos.push({k:"ans",id:p.id,txt:"💬 Resposta: "+(p.pergunta||"").slice(0,38)}); });
   // aprovações pendentes (só gestor)
   if(ROLE==="admin"){
-    const {data:pr}=await sb.from("proposals").select("id").eq("status","pendente");
-    const seenP=seenGet("seenAprov");
-    (pr||[]).forEach(p=>{ if(!seenP.includes(p.id)) novos.push({k:"aprov",id:p.id,txt:"✋ Aprovação pendente da Rayane"}); });
+    const {data:lg}=await sb.from("log_alteracoes").select("id,descricao,campo,de,para").order("id",{ascending:false}).limit(40);
+    const seenP=seenGet("seenAlt");
+    (lg||[]).forEach(p=>{ if(!seenP.includes(p.id)) novos.push({k:"alt",id:p.id,txt:"✏️ Rayane: "+((p.descricao||"").slice(0,20))+" — "+(p.de||"—")+"→"+(p.para||"")}); });
   }
   if(novos.length){
     NOTIFS=novos.concat(NOTIFS).slice(0,30);
     const bb=$("bellBadge"); bb.textContent=NOTIFS.length>9?"9+":NOTIFS.length; bb.classList.remove("hide");
-    const ans=novos.filter(x=>x.k==="ans").length, ap=novos.filter(x=>x.k==="aprov").length;
-    const m=(ans?ans+" resposta"+(ans>1?"s":""):"")+(ans&&ap?" · ":"")+(ap?ap+" aprovação"+(ap>1?"ões":"")+" pendente"+(ap>1?"s":""):"");
+    const ans=novos.filter(x=>x.k==="ans").length, ap=novos.filter(x=>x.k==="alt").length;
+    const m=(ans?ans+" resposta"+(ans>1?"s":""):"")+(ans&&ap?" · ":"")+(ap?ap+" alteração"+(ap>1?"ões":"")+" da Rayane":"");
     toast("🔔 "+m); notify(m);
   }
   renderPop();
@@ -441,7 +442,7 @@ function renderPop(){ $("notifPop").innerHTML = NOTIFS.length? NOTIFS.map(n=>`<d
 $("btnBell").onclick=()=>{
   askPermissaoNotif();
   const pop=$("notifPop"); pop.classList.toggle("hide");
-  NOTIFS.forEach(n=>{ if(n.k==="ans") seenAdd("seenAns",n.id); if(n.k==="aprov") seenAdd("seenAprov",n.id); });
+  NOTIFS.forEach(n=>{ if(n.k==="ans") seenAdd("seenAns",n.id); if(n.k==="alt") seenAdd("seenAlt",n.id); });
   $("bellBadge").classList.add("hide");
   renderPop();
 };
