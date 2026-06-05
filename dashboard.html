@@ -138,7 +138,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
       <div class="card"><h2>Gasto mensal — parcela a parcela</h2><canvas id="chPP" height="220"></canvas>
         <div class="muted" style="margin-top:6px;">Cada parcela cai no mês em que entra na fatura. <b style="color:#f0a93b">laranja</b> = média 3 meses · <b style="color:#d23f3f">vermelho tracejado</b> = tendência.</div></div>
       <div class="card"><h2>Gasto mensal — pela data da compra</h2><canvas id="chCompra" height="220"></canvas>
-        <div class="muted" style="margin-top:6px;">Parcelados entram com o <b>valor cheio</b> no mês da compra. As pontas podem ficar incompletas (parcelados que cruzam a janela de 13 meses).</div></div>
+        <div class="muted" style="margin-top:6px;">Parcelados <b>com data de compra conhecida</b> (histórico) entram com o valor cheio no mês da compra. O mês corrente (sync ao vivo) entra pelo valor da parcela. As pontas podem ficar incompletas.</div></div>
     </div>
 
     <div class="card">
@@ -253,8 +253,8 @@ function drawCartao(){
   // 2) pela data da compra (valor cheio, dedup parcelas, corta as pontas fora da janela)
   const cp={}; MONTHS.forEach(m=>cp[m]=0); const seen=new Set();
   TX.forEach(r=>{ if(!real(r)) return;
-    if(r.src==='Cartão' && r.parcela){
-      const tt=parseInt((r.parcela.split('/')[1])||'1'); const dc=r.data_compra||r.data; const m=ym(dc);
+    if(r.src==='Cartão' && r.parcela && r.data_compra){
+      const tt=parseInt((r.parcela.split('/')[1])||'1'); const dc=r.data_compra; const m=ym(dc);
       const key=dc+'|'+(r.descricao||'')+'|'+tt+'|'+r.valor;
       if(seen.has(key)) return; seen.add(key);
       if(inWin.has(m)) cp[m]+=Number(r.valor)*tt;
