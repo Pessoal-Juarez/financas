@@ -75,6 +75,11 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
 .login input{width:100%;margin-bottom:10px;}
 .err{color:#d23f3f;font-size:13px;margin-top:6px;}
 .who{font-size:12px;color:var(--th);}
+.nbadge{position:absolute;top:-6px;right:-6px;background:#d23f3f;color:#fff;font-size:9px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 3px;}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--card);color:var(--text);border:1px solid var(--border);box-shadow:0 6px 22px rgba(0,0,0,.20);border-radius:12px;padding:11px 16px;font-size:13px;z-index:9999;max-width:92%;}
+.popover{position:absolute;right:0;top:40px;width:270px;max-height:340px;overflow:auto;background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 26px rgba(0,0,0,.20);padding:6px;z-index:1000;}
+.popover .ni{padding:9px 10px;border-radius:8px;font-size:12.5px;border-bottom:1px solid var(--border2);}
+.popover .ni:last-child{border-bottom:none;}
 @media(max-width:560px){
   .wrap{padding:12px;}
   h1{font-size:17px;} .big{font-size:21px;}
@@ -104,7 +109,7 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
 <div id="appView" class="wrap hide">
   <div class="row" style="justify-content:space-between;margin-bottom:14px;">
     <div><h1>Finanças da Família</h1><div class="who" id="whoami"></div></div>
-    <div class="row"><select id="theme" title="Tema" style="padding:5px 8px;font-size:12px;"><option value="system">🖥️ Sistema</option><option value="light">☀️ Claro</option><option value="dark">🌙 Escuro</option></select><a class="btn sm" href="dashboard.html" style="text-decoration:none;">📊 Dashboard</a><button class="btn alt sm" id="btnLogout">Sair</button></div>
+    <div class="row"><select id="theme" title="Tema" style="padding:5px 8px;font-size:12px;"><option value="system">🖥️ Sistema</option><option value="light">☀️ Claro</option><option value="dark">🌙 Escuro</option></select><button class="btn sm" id="btnAtualizar" title="Puxar o banco agora">🔄 <span id="atzLbl">Atualizar</span></button><a class="btn sm" href="dashboard.html" style="text-decoration:none;">📊 Dashboard</a><div style="position:relative;"><button class="btn alt sm" id="btnBell" title="Notificações">🔔<span id="bellBadge" class="nbadge hide">0</span></button><div id="notifPop" class="popover hide"></div></div><button class="btn alt sm" id="btnLogout">Sair</button></div>
   </div>
 
   <div class="tabs">
@@ -168,7 +173,7 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
   <div id="paneAsk" class="hide">
     <div class="card">
       <b>Pergunte sobre as finanças</b>
-      <div class="muted" style="margin:4px 0 10px;">Ex.: "quanto gastamos com restaurante em maio?", "a clínica deu lucro?", "qual nosso maior gasto fixo?". O assistente responde em até 1 dia.</div>
+      <div class="muted" style="margin:4px 0 10px;">Ex.: "quanto gastamos com restaurante em maio?", "a clínica deu lucro?", "qual nosso maior gasto fixo?". O Claude responde em ~2 minutos.</div>
       <textarea id="askText" rows="3" style="width:100%;font-family:inherit;" placeholder="Escreva sua pergunta..."></textarea>
       <div style="margin-top:8px;"><button class="btn sm" id="btnAsk">Enviar pergunta</button> <span class="muted" id="askMsg"></span></div>
     </div>
@@ -225,6 +230,7 @@ async function boot(){
     ? "Você é gestor: suas mudanças de classificação salvam na hora."
     : "Suas mudanças nas classes da clínica/Slim Fit/Rai/Indefinido entram como pendentes até o Juarez aprovar.";
   await loadAll();
+  startNotifs();
 }
 
 async function loadAll(){
@@ -350,18 +356,85 @@ async function loadPerguntas(){
 async function sendPergunta(){
   const t=$("askText").value.trim(); if(!t) return;
   const nome=($("whoami").textContent.split(' · ')[0])||'';
-  $("btnAsk").disabled=true; $("askMsg").textContent="pensando... 🤔";
+  askPermissaoNotif();
+  $("btnAsk").disabled=true; $("askMsg").textContent="enviando… o Claude responde em ~2 min";
   const ins=await sb.from("perguntas").insert({pergunta:t, autor:nome, autor_id:USER.id}).select("id").single();
   if(ins.error){ $("btnAsk").disabled=false; $("askMsg").textContent="erro: "+ins.error.message; return; }
-  $("askText").value="";
-  try{
-    const {error}=await sb.functions.invoke("perguntar",{body:{id:ins.data.id, pergunta:t}});
-    if(error) throw error;
-    $("askMsg").textContent="";
-  }catch(e){ $("askMsg").textContent="pergunta salva — resposta em instantes (a função pode ainda não estar publicada)."; }
-  $("btnAsk").disabled=false;
+  $("askText").value=""; $("btnAsk").disabled=false; $("askMsg").textContent="pergunta enviada ⏳ (resposta em ~2 min)";
   await loadPerguntas();
+  // acompanha esta pergunta até ser respondida
+  const pid=ins.data.id; let n=0;
+  const iv=setInterval(async ()=>{
+    n++;
+    const {data}=await sb.from("perguntas").select("status").eq("id",pid).maybeSingle();
+    if(data && data.status==="respondida"){ clearInterval(iv); seenAdd('seenAns',pid); $("askMsg").textContent=""; await loadPerguntas(); toast("💬 Resposta pronta"); }
+    else if(n>=60){ clearInterval(iv); $("askMsg").textContent=""; } // ~5 min
+  }, 5000);
 }
+
+// ---- BOTÃO ATUALIZAR (fila de comandos -> VPS) ----
+$("btnAtualizar").onclick = async ()=>{
+  askPermissaoNotif();
+  $("btnAtualizar").disabled=true; $("atzLbl").textContent="Atualizando…";
+  const ins=await sb.from("comandos").insert({tipo:"sync"}).select("id").single();
+  if(ins.error){ resetAtz(); toast("⚠️ "+ins.error.message); return; }
+  toast("🔄 Pedido enviado — puxando o banco (até ~2 min)");
+  const cid=ins.data.id; let n=0;
+  const iv=setInterval(async ()=>{
+    n++;
+    const {data}=await sb.from("comandos").select("status").eq("id",cid).maybeSingle();
+    if(data && data.status==="concluido"){ clearInterval(iv); resetAtz(); await loadAll(); toast("✅ Banco atualizado"); }
+    else if(n>=48){ clearInterval(iv); resetAtz(); toast("⏳ Ainda processando — confira em instantes"); } // ~4 min
+  }, 5000);
+};
+function resetAtz(){ $("btnAtualizar").disabled=false; $("atzLbl").textContent="Atualizar"; }
+
+// ---- NOTIFICAÇÕES (sino + toast, sem spam) ----
+function seenGet(k){ try{return JSON.parse(localStorage.getItem(k)||"[]");}catch(e){return [];} }
+function seenAdd(k,id){ const a=seenGet(k); if(!a.includes(id)){ a.push(id); localStorage.setItem(k,JSON.stringify(a.slice(-300))); } }
+let toastTimer=null;
+function toast(msg){
+  let el=$("toastEl");
+  if(!el){ el=document.createElement("div"); el.id="toastEl"; el.className="toast hide"; document.body.appendChild(el); }
+  el.textContent=msg; el.classList.remove("hide");
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.add("hide"), 4500);
+}
+function notify(body){ if(window.Notification && Notification.permission==="granted"){ try{ new Notification("Finanças da Família",{body}); }catch(e){} } }
+function askPermissaoNotif(){ if(window.Notification && Notification.permission==="default"){ try{ Notification.requestPermission(); }catch(e){} } }
+let NOTIFS=[];
+async function checkNotifs(){
+  if(!USER) return;
+  const novos=[];
+  // respostas novas do assistente
+  const {data:resp}=await sb.from("perguntas").select("id,pergunta").eq("status","respondida").order("respondido_em",{ascending:false}).limit(20);
+  const seenA=seenGet("seenAns");
+  (resp||[]).forEach(p=>{ if(!seenA.includes(p.id)) novos.push({k:"ans",id:p.id,txt:"💬 Resposta: "+(p.pergunta||"").slice(0,38)}); });
+  // aprovações pendentes (só gestor)
+  if(ROLE==="admin"){
+    const {data:pr}=await sb.from("proposals").select("id").eq("status","pendente");
+    const seenP=seenGet("seenAprov");
+    (pr||[]).forEach(p=>{ if(!seenP.includes(p.id)) novos.push({k:"aprov",id:p.id,txt:"✋ Aprovação pendente da Rayane"}); });
+  }
+  if(novos.length){
+    NOTIFS=novos.concat(NOTIFS).slice(0,30);
+    const bb=$("bellBadge"); bb.textContent=NOTIFS.length>9?"9+":NOTIFS.length; bb.classList.remove("hide");
+    const ans=novos.filter(x=>x.k==="ans").length, ap=novos.filter(x=>x.k==="aprov").length;
+    const m=(ans?ans+" resposta"+(ans>1?"s":""):"")+(ans&&ap?" · ":"")+(ap?ap+" aprovação"+(ap>1?"ões":"")+" pendente"+(ap>1?"s":""):"");
+    toast("🔔 "+m); notify(m);
+  }
+  renderPop();
+}
+function renderPop(){ $("notifPop").innerHTML = NOTIFS.length? NOTIFS.map(n=>`<div class="ni">${n.txt}</div>`).join("") : `<div class="ni muted">Sem novidades 🎉</div>`; }
+$("btnBell").onclick=()=>{
+  askPermissaoNotif();
+  const pop=$("notifPop"); pop.classList.toggle("hide");
+  NOTIFS.forEach(n=>{ if(n.k==="ans") seenAdd("seenAns",n.id); if(n.k==="aprov") seenAdd("seenAprov",n.id); });
+  $("bellBadge").classList.add("hide");
+  renderPop();
+};
+document.addEventListener("click",e=>{ if(!e.target.closest("#btnBell") && !e.target.closest("#notifPop")) $("notifPop").classList.add("hide"); });
+let NOTIF_IV=null;
+function startNotifs(){ if(NOTIF_IV) return; checkNotifs(); NOTIF_IV=setInterval(checkNotifs, 30000); }
 
 // ---- tabs & filters ----
 document.querySelectorAll(".tab").forEach(t=> t.onclick=()=>{
