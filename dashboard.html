@@ -128,6 +128,13 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
     </div>
 
     <div class="card">
+      <h2>Quem me deve (empréstimos)</h2>
+      <table><thead><tr><th>Pessoa</th><th class="num">Emprestado</th><th class="num">Já pagou</th><th class="num">Falta</th><th style="width:28%">Pago</th></tr></thead>
+        <tbody id="empBody"></tbody></table>
+      <div class="muted" style="margin-top:8px;">Compras que você fez no cartão pra outra pessoa (classe "Empréstimo", categoria = nome dela). Quando ela te paga por Pix, marque o Pix também como "Empréstimo" + o nome. Verde = quitado.</div>
+    </div>
+
+    <div class="card">
       <h2>Metas por categoria</h2>
       <div class="muted" style="margin-bottom:10px;" id="metaScope"></div>
       <table><thead><tr><th>Categoria</th><th class="num">Meta / mês</th><th class="num">Realizado</th><th style="width:38%">Progresso</th></tr></thead>
@@ -151,7 +158,7 @@ if(window.Chart){ Chart.defaults.color='#8a93a3'; Chart.defaults.borderColor='rg
 
 const CUSTO=["Pessoal família","Pessoal Juarez","Pessoal Rayane"];
 const BIZ=["Dra. Rayane","Slim Fit","Rai Móveis","OQV"];
-const OPTIONS=["Pessoal família","Pessoal Juarez","Pessoal Rayane","Dra. Rayane","Slim Fit","Rai Móveis","OQV","Não é gasto","Indefinido"];
+const OPTIONS=["Pessoal família","Pessoal Juarez","Pessoal Rayane","Dra. Rayane","Slim Fit","Rai Móveis","OQV","Empréstimo","Não é gasto","Indefinido"];
 const PALETTE=["#2f6df0","#0f9d58","#e36fae","#b5560e","#7a5cf0","#c2410c","#127c8a","#f0a93b","#34b3a0","#e8643c","#9aa3b2","#6b7686"];
 const MES={"01":"Jan","02":"Fev","03":"Mar","04":"Abr","05":"Mai","06":"Jun","07":"Jul","08":"Ago","09":"Set","10":"Out","11":"Nov","12":"Dez"};
 const BRL=n=>"R$ "+(n||0).toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0});
@@ -280,7 +287,21 @@ function renderAll(){
   $("kNg").textContent=BRL(tot["Não é gasto"]);
   $("kN").textContent=sc.length;
   $("scopeInfo").textContent=`${sc.length} lançamentos`;
-  drawMonthly(); drawCat(sc); drawPay(); drawMetas(sc,nM);
+  drawMonthly(); drawCat(sc); drawPay(); drawMetas(sc,nM); drawEmprestimos();
+}
+function drawEmprestimos(){
+  const base=TX.filter(r=>r.cls==='Empréstimo');
+  const byP={};
+  base.forEach(r=>{ const p=r.categoria||'(sem nome)'; if(!byP[p])byP[p]={emp:0,pago:0}; if((r.tipo||'saida')==='saida')byP[p].emp+=Number(r.valor); else byP[p].pago+=Number(r.valor); });
+  const arr=Object.entries(byP).sort((a,b)=>(b[1].emp-b[1].pago)-(a[1].emp-a[1].pago));
+  $("empBody").innerHTML = arr.length? arr.map(([p,o])=>{
+    const falta=o.emp-o.pago, quit=falta<=0.01, pct=o.emp>0?Math.min(o.pago/o.emp*100,100):0;
+    return `<tr><td>${p}</td>
+      <td class="num">${BRL(o.emp)}</td>
+      <td class="num" style="color:#0f9d58">${BRL(o.pago)}</td>
+      <td class="num" style="color:${quit?'#0f9d58':'#d23f3f'};font-weight:700">${quit?'quitado ✓':BRL(falta)}</td>
+      <td><div class="bar"><div style="width:${pct}%;background:${quit?'#0f9d58':'#f0a93b'}"></div></div></td></tr>`;
+  }).join("") : `<tr><td colspan="5" class="muted">Nenhum empréstimo registrado ainda.</td></tr>`;
 }
 function drawPay(){
   const m=$("fMonth").value,s=$("fSrc").value;
