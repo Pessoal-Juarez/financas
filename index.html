@@ -59,6 +59,7 @@ th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border2);ver
 th{color:var(--th);font-weight:600;font-size:10.5px;text-transform:uppercase;position:sticky;top:0;background:var(--card);}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
 tr.ind{background:var(--row-ind);} tr.pend{background:var(--row-pend);}
+tr.naoconta{opacity:.6;} tr.naoconta td:nth-child(2), tr.naoconta td:nth-child(4){text-decoration:line-through;}
 .tablebox{max-height:560px;overflow:auto;border:1px solid var(--border2);border-radius:10px;}
 .tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}
 .tab{padding:8px 14px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;font-weight:600;font-size:13px;}
@@ -299,7 +300,7 @@ function render(){
     const catCell = canEditCat
       ? `<input class="cat" list="catlist" data-id="${r.id}" value="${(r.categoria||'').replace(/"/g,'&quot;')}">`
       : `<span class="muted">${r.categoria||''}</span>`;
-    return `<tr class="${r.cls==='Indefinido'?'ind':''} ${pend?'pend':''}">
+    return `<tr class="${r.cls==='Indefinido'?'ind':''} ${pend?'pend':''} ${r.cls==='Não é gasto'?'naoconta':''}">
       <td class="muted">${d}<div style="font-size:10px">${r.src}</div></td>
       <td>${r.descricao}</td><td>${catCell}</td>
       <td class="num">${BRL(Number(r.valor))}</td>
@@ -316,7 +317,7 @@ async function onChangeCls(e){
     const {error}=await sb.from("transactions").update({cls:novo, updated_by:USER.id, updated_at:new Date().toISOString()}).eq("id",id);
     if(error){ alert("Erro: "+error.message); return; }
     const t=TX.find(x=>x.id===id); t.cls=novo;
-    recompute(); render();
+    recompute(); render(); toast("✓ salvo");
   } else {
     const {error}=await sb.from("proposals").insert({transaction_id:id, de_cls:cur, para_cls:novo, proposta_por:USER.id});
     if(error){ alert("Não foi possível propor: "+error.message); return; }
@@ -329,7 +330,7 @@ async function onChangeCat(e){
   if(ROLE==="admin"){
     const {error}=await sb.from("transactions").update({categoria:v, updated_by:USER.id, updated_at:new Date().toISOString()}).eq("id",id);
     if(error){ alert("Erro: "+error.message); return; }
-    t.categoria=v;
+    t.categoria=v; toast("✓ salvo");
   } else {
     const {error}=await sb.from("proposals").insert({transaction_id:id, de_cls:t.cls, para_cls:t.cls, para_categoria:v, proposta_por:USER.id});
     if(error){ alert("Não foi possível propor: "+error.message); return; }
