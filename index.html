@@ -110,7 +110,7 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
 <div id="appView" class="wrap hide">
   <div class="row" style="justify-content:space-between;margin-bottom:14px;">
     <div><h1>Finanças da Família</h1><div class="who" id="whoami"></div></div>
-    <div class="row"><select id="theme" title="Tema" style="padding:5px 8px;font-size:12px;"><option value="system">🖥️ Sistema</option><option value="light">☀️ Claro</option><option value="dark">🌙 Escuro</option></select><button class="btn sm" id="btnAtualizar" title="Puxar o banco agora">🔄 <span id="atzLbl">Atualizar</span></button><a class="btn sm" href="dashboard.html" style="text-decoration:none;">📊 Dashboard</a><div style="position:relative;"><button class="btn alt sm" id="btnBell" title="Notificações">🔔<span id="bellBadge" class="nbadge hide">0</span></button><div id="notifPop" class="popover hide"></div></div><button class="btn alt sm" id="btnLogout">Sair</button></div>
+    <div class="row"><select id="theme" title="Tema" style="padding:5px 8px;font-size:12px;"><option value="system">🖥️ Sistema</option><option value="light">☀️ Claro</option><option value="dark">🌙 Escuro</option></select><button class="btn sm" id="btnAtualizar" title="Puxar o banco agora">🔄 <span id="atzLbl">Atualizar</span></button><input id="fileFatura" type="file" accept=".pdf,.csv,.txt,application/pdf,text/csv,text/plain" class="hide"><button class="btn alt sm" id="btnUpload" title="Enviar PDF/CSV da fatura em andamento (mês atual)">📄 <span id="upLbl">Enviar fatura</span></button><a class="btn sm" href="dashboard.html" style="text-decoration:none;">📊 Dashboard</a><div style="position:relative;"><button class="btn alt sm" id="btnBell" title="Notificações">🔔<span id="bellBadge" class="nbadge hide">0</span></button><div id="notifPop" class="popover hide"></div></div><button class="btn alt sm" id="btnLogout">Sair</button></div>
   </div>
 
   <div class="tabs">
@@ -446,6 +446,33 @@ $("btnAtualizar").onclick = async ()=>{
   }, 5000);
 };
 function resetAtz(){ $("btnAtualizar").disabled=false; $("atzLbl").textContent="Atualizar"; }
+
+// ---- ENVIAR FATURA (PDF/CSV) -> Storage + comando import-cartao ----
+$("btnUpload").onclick = ()=> $("fileFatura").click();
+$("fileFatura").onchange = async (e)=>{
+  const file = e.target.files[0]; e.target.value=""; if(!file) return;
+  const ext=(file.name.split('.').pop()||'').toLowerCase();
+  const ct={pdf:'application/pdf',csv:'text/csv',txt:'text/plain'}[ext];
+  if(!ct){ toast("⚠️ Envie um PDF, CSV ou TXT"); return; }
+  if(file.size>15*1024*1024){ toast("⚠️ Arquivo grande demais (máx 15 MB)"); return; }
+  askPermissaoNotif();
+  $("btnUpload").disabled=true; $("upLbl").textContent="Enviando…";
+  const safe=file.name.replace(/[^A-Za-z0-9._-]/g,"_");
+  const path=`${Date.now()}_${safe}`;
+  const up=await sb.storage.from("faturas-cartao").upload(path,file,{contentType:ct,upsert:false});
+  if(up.error){ resetUp(); toast("⚠️ Falha no upload: "+up.error.message); return; }
+  const ins=await sb.from("comandos").insert({tipo:"import-cartao"}).select("id").single();
+  if(ins.error){ resetUp(); toast("⚠️ "+ins.error.message); return; }
+  toast("📄 Fatura enviada — processando (até ~3 min)");
+  const cid=ins.data.id; let n=0;
+  const iv=setInterval(async ()=>{
+    n++;
+    const {data}=await sb.from("comandos").select("status,resultado").eq("id",cid).maybeSingle();
+    if(data && data.status==="concluido"){ clearInterval(iv); resetUp(); await loadAll(); toast("✅ "+(data.resultado||"Fatura importada")); }
+    else if(n>=60){ clearInterval(iv); resetUp(); toast("⏳ Ainda processando — confira em instantes"); } // ~5 min
+  }, 5000);
+};
+function resetUp(){ $("btnUpload").disabled=false; $("upLbl").textContent="Enviar fatura"; }
 
 // ---- NOTIFICAÇÕES (sino + toast, sem spam) ----
 function seenGet(k){ try{return JSON.parse(localStorage.getItem(k)||"[]");}catch(e){return [];} }
