@@ -117,7 +117,7 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
     <div class="tab on" data-tab="lanc" data-tipo="saida" id="tabGastos">Gastos</div>
     <div class="tab" data-tab="lanc" data-tipo="entrada" id="tabReceitas">Receitas</div>
     <div class="tab" data-tab="ask" id="tabAsk">💬 Assistente</div>
-    <div class="tab hide" data-tab="aprov" id="tabAprov">✏️ Alterações <span id="pendCount"></span></div>
+    <div class="tab hide" data-tab="aprov" id="tabAprov">✏️ Alterações</div>
     <div class="tab hide" data-tab="oqv" id="tabOqv">🏢 OQV</div>
   </div>
 
@@ -145,7 +145,7 @@ select.cls{font-size:12px!important;padding:4px 6px!important;max-width:155px;}
         <b>Mês:</b><select id="fMonth"></select>
         <select id="fSrc"><option value="">Origem: todas</option><option>Conta</option><option>Cartão</option><option>BTG</option></select>
         <select id="fCls"><option value="">Classif.: todas</option></select>
-        <select id="fRev"><option value="">Todos</option><option value="ind">Só Indefinido</option><option value="pend">Só pendentes</option></select>
+        <select id="fRev"><option value="">Todos</option><option value="ind">Só Indefinido</option></select>
         <input id="fSearch" placeholder="buscar..." size="12">
       </div>
       <div class="tablebox">
@@ -221,7 +221,7 @@ const BRL = n => "R$ " + (n||0).toLocaleString("pt-BR",{minimumFractionDigits:2,
 const ym = d => d.slice(0,7);
 const ymLabel = s => MES[s.slice(5,7)]+"/"+s.slice(0,4);
 
-let ROLE="colab", USER=null, TX=[], PEND={}, VIEW_TIPO="saida"; // PEND: transaction_id -> proposal
+let ROLE="colab", USER=null, TX=[], VIEW_TIPO="saida";
 
 const $=id=>document.getElementById(id);
 (function(){ const ts=$("theme"); if(ts){ ts.value=localStorage.getItem('tema')||'system';
@@ -270,14 +270,11 @@ async function loadAll(){
   const {data:tx, error} = await fetchAllTx();
   if(error){ alert("Erro ao carregar: "+error.message); return; }
   TX = tx||[];
-  // OQV e contas PJ (BTG/Nubank/InfinitePay) só pro gestor
+  // OQV e contas PJ (BTG/Nubank/InfinitePay) só pro gestor.
+  // Desde 05/08/2026 isso também é RLS no banco — o filtro aqui é só cosmético.
   if(ROLE!=='admin') TX = TX.filter(r=> r.cls!=='OQV' && !/^(BTG|Nubank|Infinit)/i.test(r.src||''));
-  // pendentes
-  const {data:props} = await sb.from("proposals").select("*").eq("status","pendente");
-  PEND={}; (props||[]).forEach(p=> PEND[p.transaction_id]=p);
   buildMonths(); recompute(); render();
   if(ROLE==="admin") loadAprov();
-  $("pendCount").textContent = Object.keys(PEND).length? "("+Object.keys(PEND).length+")":"";
 }
 
 function buildMonths(){
@@ -308,21 +305,12 @@ function render(){
   const m=$("fMonth").value, fs=$("fSrc").value, fc=$("fCls").value, fr=$("fRev").value, q=$("fSearch").value.toLowerCase();
   let rows=TX.filter(r=> (r.tipo||'saida')===VIEW_TIPO && (!m||ym(r.data)===m)&&(!fs||r.src===fs)&&(!fc||r.cls===fc)&&(!q||r.descricao.toLowerCase().includes(q)) );
   if(fr==="ind") rows=rows.filter(r=>r.cls==="Indefinido");
-  if(fr==="pend") rows=rows.filter(r=>PEND[r.id]);
   $("tbody").innerHTML = rows.map(r=>{
-    const pend=PEND[r.id];
-    const canEdit = true;
     const opts=OPTIONS.map(o=>`<option value="${o}"${o===r.cls?" selected":""}>${o}</option>`).join("");
-    const cell = pend
-      ? `<span class="badge">pendente${pend.para_cls!==r.cls?` → ${pend.para_cls}`:''}${pend.para_categoria?` (cat: ${pend.para_categoria})`:''}</span>`
-      : (canEdit? `<select class="cls" data-id="${r.id}" data-cur="${r.cls}" style="border-left:4px solid ${COLORS[r.cls]}">${opts}</select>`
-                : `<span style="border-left:4px solid ${COLORS[r.cls]};padding-left:6px">${r.cls}</span>`);
+    const cell = `<select class="cls" data-id="${r.id}" data-cur="${r.cls}" style="border-left:4px solid ${COLORS[r.cls]}">${opts}</select>`;
     const d=r.data.slice(8,10)+"/"+r.data.slice(5,7)+"/"+r.data.slice(2,4);
-    const canEditCat = !pend;
-    const catCell = canEditCat
-      ? `<input class="cat" list="catlist" data-id="${r.id}" value="${(r.categoria||'').replace(/"/g,'&quot;')}">`
-      : `<span class="muted">${r.categoria||''}</span>`;
-    return `<tr class="${r.cls==='Indefinido'?'ind':''} ${pend?'pend':''} ${r.cls==='Não é gasto'?'naoconta':''}">
+    const catCell = `<input class="cat" list="catlist" data-id="${r.id}" value="${(r.categoria||'').replace(/"/g,'&quot;')}">`;
+    return `<tr class="${r.cls==='Indefinido'?'ind':''} ${r.cls==='Não é gasto'?'naoconta':''}">
       <td class="muted">${d}<div style="font-size:10px">${r.src}</div></td>
       <td>${r.descricao}</td><td>${catCell}</td>
       <td class="num">${BRL(Number(r.valor))}</td>
