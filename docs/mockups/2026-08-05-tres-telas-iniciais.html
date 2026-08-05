@@ -1,0 +1,143 @@
+<h2>Qual dessas telas você quer ver ao abrir o app?</h2>
+<p class="subtitle">
+  Todos os números abaixo são reais, tirados do seu Supabase agora
+  (jul/2026, média abr–jun, patrimônio atual). A escolha aqui define o app inteiro:
+  ela diz o que "controlar melhor as finanças" significa <em>pra você</em>,
+  e as outras telas se organizam em volta dela.
+</p>
+
+<style>
+  .fone{width:300px;border:1px solid var(--border,#d8dce4);border-radius:22px;overflow:hidden;
+        background:#f4f6f9;font-family:system-ui,sans-serif;margin:0 auto;}
+  .fone .top{background:#fff;padding:12px 14px;border-bottom:1px solid #e6e9ef;
+        display:flex;justify-content:space-between;align-items:center;}
+  .fone .top b{font-size:13px;color:#1a2230;}
+  .fone .top span{font-size:11px;color:#5c6675;}
+  .bloco{background:#fff;margin:10px;border-radius:14px;padding:14px;border:1px solid #e6e9ef;}
+  .rot{font-size:10px;font-weight:700;letter-spacing:.08em;color:#5c6675;text-transform:uppercase;}
+  .num{font-size:30px;font-weight:800;letter-spacing:-.02em;line-height:1.1;margin:6px 0 2px;color:#1a2230;}
+  .num.azul{color:#2f6df0;} .num.verm{color:#d23f3f;} .num.roxo{color:#7a5cf0;}
+  .sub{font-size:11px;color:#5c6675;line-height:1.4;}
+  .pil{display:inline-block;font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;margin-top:6px;}
+  .pil.ruim{background:#fdecec;color:#a82020;} .pil.bom{background:#e7f6ee;color:#0b7a44;}
+  .barra{height:7px;border-radius:99px;background:#eef1f6;overflow:hidden;margin-top:8px;}
+  .barra i{display:block;height:100%;border-radius:99px;}
+  .item{display:flex;justify-content:space-between;font-size:11px;padding:6px 0;border-bottom:1px solid #f0f2f6;color:#1a2230;}
+  .item:last-child{border:none;}
+  .alerta{background:#fff8e6;border:1px solid #f3dfae;border-radius:12px;padding:10px 12px;margin:10px;}
+  .alerta .t{font-size:11px;font-weight:700;color:#7a5300;}
+  .alerta .d{font-size:10.5px;color:#7a5300;opacity:.85;margin-top:3px;line-height:1.4;}
+  .btn{background:#2f6df0;color:#fff;font-size:11px;font-weight:700;padding:9px;border-radius:10px;
+       text-align:center;margin-top:9px;}
+  .nav{display:flex;background:#fff;border-top:1px solid #e6e9ef;padding:8px 0;}
+  .nav div{flex:1;text-align:center;font-size:9px;color:#8a93a3;}
+  .nav div.on{color:#2f6df0;font-weight:700;}
+  .card-image{padding:14px 0;background:#eef1f6;}
+</style>
+
+<div class="cards">
+
+  <div class="card" data-choice="folego" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="fone">
+        <div class="top"><b>Finanças</b><span>jul/2026</span></div>
+        <div class="bloco">
+          <div class="rot">Fôlego da reserva</div>
+          <div class="num verm">1,8 meses</div>
+          <div class="sub">R$ 16.628 líquidos ÷ R$ 9.057/mês</div>
+          <div class="barra"><i style="width:15%;background:#d23f3f"></i></div>
+          <div class="pil ruim">−0,4 mês vs. abril</div>
+        </div>
+        <div class="bloco">
+          <div class="rot">Para durar 6 meses</div>
+          <div class="sub" style="margin-top:6px">
+            Precisa cortar <b style="color:#1a2230">R$ 6.286/mês</b><br>
+            ou a OQV faturar <b style="color:#1a2230">R$ 6.286/mês</b>
+          </div>
+        </div>
+        <div class="nav"><div class="on">Início</div><div>Triar</div><div>Lanç.</div><div>Análise</div><div>Mais</div></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. Fôlego primeiro</h3>
+      <p><b>A pergunta:</b> "quanto tempo eu aguento?"<br>
+      Abre com a sobrevivência. Todo gasto vira consequência: cada R$ 500 cortados
+      viram X dias a mais. Faz sentido pra quem saiu do CLT e vive de reserva.<br>
+      <b>Risco:</b> ver 1,8 meses todo dia pode gerar mais ansiedade que ação.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="mes" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="fone">
+        <div class="top"><b>Finanças</b><span>jul/2026</span></div>
+        <div class="bloco">
+          <div class="rot">Custo de vida — julho</div>
+          <div class="num azul">R$ 5.569</div>
+          <div class="sub">parcial · faltam 3 dias do mês</div>
+          <div class="pil bom">−38% vs. média de 3 meses</div>
+        </div>
+        <div class="bloco">
+          <div class="rot">Para onde foi</div>
+          <div class="item"><span>● Pessoal família</span><b>R$ 2.640</b></div>
+          <div class="item"><span>● Pessoal Juarez</span><b>R$ 1.807</b></div>
+          <div class="item"><span>● Pessoal Raiane</span><b>R$ 1.122</b></div>
+          <div class="barra"><i style="width:47%;background:#2f6df0"></i></div>
+        </div>
+        <div class="nav"><div class="on">Início</div><div>Triar</div><div>Lanç.</div><div>Análise</div><div>Mais</div></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Mês corrente primeiro</h3>
+      <p><b>A pergunta:</b> "quanto gastei e com o quê?"<br>
+      Abre com o gasto do mês e a comparação com a média. É o padrão dos apps de
+      banco — familiar e sem sobressalto.<br>
+      <b>Risco:</b> é a tela que você <em>já tem</em>. Mais organizada, mas
+      não muda decisão nenhuma sozinha.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="acao" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="fone">
+        <div class="top"><b>Finanças</b><span>jul/2026</span></div>
+        <div class="alerta">
+          <div class="t">⚠ 30 lançamentos sem classificar</div>
+          <div class="d">22% de julho. Enquanto isso, todo número
+             desta tela pode mudar.</div>
+          <div class="btn">Triar agora →</div>
+        </div>
+        <div class="bloco">
+          <div class="rot">O que fugiu do padrão</div>
+          <div class="item"><span>Farmácia</span><b style="color:#d23f3f">3× a média</b></div>
+          <div class="item"><span>Assinatura nova</span><b>R$ 49,90</b></div>
+          <div class="item"><span>Parcela em ago</span><b>R$ 890</b></div>
+        </div>
+        <div class="bloco">
+          <div class="rot">Fôlego</div>
+          <div class="num verm" style="font-size:22px">1,8 meses</div>
+        </div>
+        <div class="nav"><div class="on">Início</div><div>Triar</div><div>Lanç.</div><div>Análise</div><div>Mais</div></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. O que exige ação primeiro</h3>
+      <p><b>A pergunta:</b> "o que eu preciso fazer / olhar hoje?"<br>
+      Abre com pendências e anomalias. Só mostra número quando há algo a fazer
+      com ele. Ataca direto os 20–27% de indefinidos que hoje deixam todo o
+      resto pouco confiável.<br>
+      <b>Risco:</b> em mês tranquilo a tela fica vazia — e some o panorama.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="section">
+  <p class="subtitle" style="margin-top:20px">
+    <b>Uma ressalva honesta sobre os números:</b> o fôlego usa a tabela
+    <code>patrimonio</code>, que tem 3 linhas preenchidas à mão e pode estar
+    desatualizada. Se R$ 28.628 (R$ 16.628 líquidos) não reflete a realidade,
+    me diga — isso muda o peso da opção A. E o custo de julho está subestimado,
+    porque 30 lançamentos do mês ainda estão como "Indefinido".
+  </p>
+</div>
