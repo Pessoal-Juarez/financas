@@ -23,7 +23,42 @@ Spec aprovada (v1.2), plano de construção escrito
 | 5 | Camada `assets/` + fontes | ✅ na branch **`redesign`** · **40/41** em `assets/_verificar.html` |
 | 6 | Fase 2 — trigger de resolução | ✅ aplicado · 8 cenários testados · 21/21 no `verificacao.sql` |
 | 7 | **Tela Triar** | ✅ na branch `redesign` · verificada no navegador com sessão real |
-| 8–10 | Início, Análise, resto | pendente |
+| 8 | **Tela Início** | ✅ na branch `redesign` · anomalias conferidas contra SQL |
+| 9–10 | Análise, resto | pendente |
+
+**Passo 8 — Início.** Número-herói é o custo de vida do mês (jul/26: **R$ 5.574**), com a
+faixa de incerteza logo abaixo (**+ até R$ 1.174**, 32 lançamentos) e atalho para Triar.
+Depois: para onde foi, por grupo; o que fugiu do padrão; e o fôlego como **menor card**.
+
+**A tela abre no mês mais recente COM DADO, não no mês do calendário.** Hoje é 06/08 e o
+último lançamento é de 28/07 — abrir em agosto mostraria R$ 0 e pareceria que ninguém
+gastou nada. O aviso diz qual mês está sendo mostrado e por quê.
+
+Fôlego: **2,3 meses**, com selo "patrimônio de 62 dias atrás". Como o CDB e o BTG são
+digitados à mão e somam 57% do patrimônio, o selo é requisito e não enfeite.
+
+### Dois falsos positivos corrigidos no detector de assinaturas
+
+A primeira versão anunciava como "cobrança nova recorrente":
+
+1. **Compras parceladas** (`SHOPEE *MISTERPROM 02/02`, `FILA BR CAUCAIA 03/04`) — uma
+   parcela aparece em meses seguidos **por construção**. É a mesma compra fatiada, não
+   uma cobrança que se repete. Agora `parcela` preenchida exclui o lançamento.
+2. **Uma assinatura de R$ 0,00.** Eu tinha escrito `med === 0 ||` na checagem de
+   tolerância para evitar divisão por zero — e com isso fiz **todo valor zero passar**.
+   A guarda contra divisão virou porta de entrada. Virou `valoresConstantes()`, com piso
+   de R$ 10 (`TRAVAS.assinaturaMinima`).
+
+Também exige **uma cobrança por mês**: duas compras no mesmo mês é frequência de
+restaurante, não de mensalidade.
+
+Depois disso o detector acha as assinaturas reais — TOTALPASS R$ 129,90, Google One
+R$ 119,98, Dom Cash Barber R$ 108,00, Netflix R$ 20,90 — e o card de julho fica só com o
+alerta de parcelas (**R$ 2.492,92 a vencer**).
+
+**Conferido contra SQL, não contra a própria tela:** em maio o JavaScript acusa Educação
+(21×) e Empresas (2,7×); o SQL dá exatamente os mesmos dois. Transporte, a 1,85×, não
+dispara em nenhum dos dois — a trava de 2× funciona.
 
 **Passo 7 — Triar.** Laço de aprendizado (Confirmar / corrigir / Pular), varredura
 retroativa em lote, cartão que não avança até a gravação confirmar. Fila de **656**.

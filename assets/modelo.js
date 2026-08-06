@@ -252,6 +252,164 @@
   }
 
   /* ------------------------------------------------------------------
+     Detecção de anomalias — "O que fugiu do padrão"
+     ------------------------------------------------------------------
+     As travas NÃO são detalhe de ajuste fino: sem elas o card dispara por
+     variação de R$ 30 todo mês, vira alarme permanente e passa a ser
+     ignorado — que é o mesmo que não existir. */
+  var TRAVAS = {
+    grupoRazao: 2,          // >= 2x a média dos 3 meses anteriores
+    grupoMinimo: 200,       // ...e só se o mês passar de R$ 200
+    parcelaMinima: 500,     // soma de parcelas futuras
+    assinaturaOcorrencias: 2,
+    assinaturaTolerancia: 0.15,  // ±15% no valor
+    assinaturaMinima: 10         // abaixo disso não vale interromper ninguém
+  };
+
+  /* Vale para os dois detectores de assinatura. Escrita como função porque a
+     primeira versão trazia `med === 0 ||` embutido para evitar divisão por
+     zero — e com isso fazia todo valor ZERO passar como "dentro da
+     tolerância". O card chegou a anunciar uma assinatura de R$ 0,00.
+     Guarda contra divisão virou porta de entrada. */
+  function valoresConstantes(vals) {
+    if (!vals.length) return false;
+    var med = vals.reduce(function (a, b) { return a + b; }, 0) / vals.length;
+    if (!(med >= TRAVAS.assinaturaMinima)) return false;
+    return vals.every(function (v) {
+      return Math.abs(v - med) / med <= TRAVAS.assinaturaTolerancia;
+    });
+  }
+  function media(vals) {
+    return vals.reduce(function (a, b) { return a + b; }, 0) / (vals.length || 1);
+  }
+
+  function porMes(lista) {
+    var m = {};
+    for (var i = 0; i < lista.length; i++) {
+      var k = ym(lista[i].data);
+      (m[k] = m[k] || []).push(lista[i]);
+    }
+    return m;
+  }
+
+  // Só despesa da família entra em anomalia. Empresa e movimentação têm
+  // ritmo próprio e disparariam alarme sem significado.
+  function despesaFamiliar(t) { return ehSaida(t) && ehCustoDeVida(t); }
+
+  function gruposAcimaDoNormal(txMes, txAnteriores, grupoDe) {
+    var atual = {}, hist = {}, meses = {};
+    txMes.filter(despesaFamiliar).forEach(function (t) {
+      var g = grupoDe(t); if (!g) return;
+      atual[g] = (atual[g] || 0) + (Number(t.valor) || 0);
+    });
+    txAnteriores.filter(despesaFamiliar).forEach(function (t) {
+      var g = grupoDe(t); if (!g) return;
+      hist[g] = (hist[g] || 0) + (Number(t.valor) || 0);
+      (meses[g] = meses[g] || {})[ym(t.data)] = 1;
+    });
+    var fora = [];
+    Object.keys(atual).forEach(function (g) {
+      var nMeses = meses[g] ? Object.keys(meses[g]).length : 0;
+      if (!nMeses) return;                       // sem histórico não há "normal"
+      var media = hist[g] / nMeses;
+      if (atual[g] < TRAVAS.grupoMinimo) return;
+      if (atual[g] < TRAVAS.grupoRazao * media) return;
+      fora.push({ grupo: g, valor: atual[g], media: media, razao: atual[g] / media });
+    });
+    return fora.sort(function (a, b) { return b.valor - a.valor; });
+  }
+
+  // Cada parcela cai no mês da sua fatura (competência). `parcela` é 'pp/tt';
+  // o que ainda vai pesar nos próximos meses é valor × (tt − pp).
+  function parcelasAVencer(txMes) {
+    var total = 0, itens = [];
+    txMes.filter(despesaFamiliar).forEach(function (t) {
+      var p = /^(\d+)\/(\d+)$/.exec(String(t.parcela || ''));
+      if (!p) return;
+      var pp = Number(p[1]), tt = Number(p[2]);
+      if (!(pp < tt)) return;
+      var futuro = (Number(t.valor) || 0) * (tt - pp);
+      total += futuro;
+      itens.push({ descricao: t.descricao, parcela: t.parcela, futuro: futuro });
+    });
+    itens.sort(function (a, b) { return b.futuro - a.futuro; });
+    return { total: total, itens: itens, alerta: total >= TRAVAS.parcelaMinima };
+  }
+
+  /* Assinaturas são CALCULADAS, não tabeladas (spec §6): uma tabela exigiria
+     manutenção manual a cada mudança de preço, e ninguém faz isso.
+
+     Recorrente = mesma descrição normalizada em >= 3 dos últimos 4 meses,
+     com valor dentro de ±15%.
+
+     "Assinatura nova" usa um critério mais frouxo de propósito — uma cobrança
+     que acabou de começar não teria como estar em 3 dos 4 meses. Ela precisa
+     aparecer em 2 meses seguidos (a trava anti-ruído: uma compra avulsa
+     repetida por acaso não conta) e não existir antes disso. */
+  function assinaturas(tx, mesRef, janela) {
+    var n = janela || 4;
+    var meses = mesesAnteriores(mesRef, n);
+    var porChave = {};
+    tx.filter(despesaFamiliar).forEach(function (t) {
+      if (ehParcelada(t)) return;   // parcela não é assinatura (ver abaixo)
+      if (meses.indexOf(ym(t.data)) === -1) return;
+      var k = normalizar(t.descricao);
+      if (!k) return;
+      (porChave[k] = porChave[k] || []).push(t);
+    });
+    var achadas = [];
+    Object.keys(porChave).forEach(function (k) {
+      var itens = porChave[k];
+      var m = {};
+      itens.forEach(function (t) { m[ym(t.data)] = 1; });
+      if (Object.keys(m).length < 3) return;
+      var vals = itens.map(function (t) { return Number(t.valor) || 0; });
+      if (!valoresConstantes(vals)) return;
+      achadas.push({ chave: k, descricao: itens[0].descricao, valor: media(vals),
+                     meses: Object.keys(m).length });
+    });
+    return achadas.sort(function (a, b) { return b.valor - a.valor; });
+  }
+
+  // Uma COMPRA PARCELADA aparece em meses seguidos por construção — é a
+  // mesma compra fatiada, não uma cobrança que se repete. Confundir as duas
+  // enche o card de falso positivo, que é o mesmo que desligá-lo.
+  function ehParcelada(t) { return /^\d+\/\d+$/.test(String(t.parcela || '')); }
+
+  function assinaturasNovas(tx, mesRef) {
+    var recentes = mesesAnteriores(mesRef, TRAVAS.assinaturaOcorrencias);
+    var limite = recentes[recentes.length - 1];
+    var vistas = {}, antes = {};
+    tx.filter(despesaFamiliar).forEach(function (t) {
+      if (ehParcelada(t)) return;
+      var k = normalizar(t.descricao);
+      if (!k) return;
+      if (recentes.indexOf(ym(t.data)) !== -1) (vistas[k] = vistas[k] || []).push(t);
+      else if (ym(t.data) < limite) antes[k] = 1;
+    });
+    var novas = [];
+    Object.keys(vistas).forEach(function (k) {
+      if (antes[k]) return;                                  // já existia: não é nova
+      var itens = vistas[k], m = {};
+      itens.forEach(function (t) { m[ym(t.data)] = (m[ym(t.data)] || 0) + 1; });
+      var meses = Object.keys(m);
+      if (meses.length < TRAVAS.assinaturaOcorrencias) return;
+
+      // Assinatura cobra UMA vez por mês. Duas compras no mesmo mês é
+      // frequência de restaurante, não de mensalidade.
+      if (meses.some(function (mm) { return m[mm] > 1; })) return;
+
+      // E cobra o MESMO valor. Sem isto, "restaurante em dois meses
+      // seguidos" vira assinatura — foi o que aconteceu na primeira versão.
+      var vals = itens.map(function (t) { return Number(t.valor) || 0; });
+      if (!valoresConstantes(vals)) return;
+
+      novas.push({ descricao: itens[0].descricao, valor: media(vals) });
+    });
+    return novas.sort(function (a, b) { return b.valor - a.valor; });
+  }
+
+  /* ------------------------------------------------------------------
      Datas
      ------------------------------------------------------------------ */
   var MES_CURTO = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun',
@@ -262,6 +420,26 @@
     if (!ym_) return '';
     var p = ym_.split('-');
     return MES_CURTO[Number(p[1]) - 1] + '/' + p[0].slice(2);
+  }
+
+  // Os n meses ANTERIORES a `mesRef`, do mais recente para o mais antigo.
+  function mesesAnteriores(mesRef, n) {
+    var p = String(mesRef).split('-');
+    var ano = Number(p[0]), mes = Number(p[1]);
+    var fora = [];
+    for (var i = 1; i <= n; i++) {
+      var m = mes - i, a = ano;
+      while (m <= 0) { m += 12; a -= 1; }
+      fora.push(a + '-' + (m < 10 ? '0' : '') + m);
+    }
+    return fora;
+  }
+
+  // Meses que têm lançamento, do mais recente para o mais antigo.
+  function mesesComDado(tx) {
+    var m = {};
+    tx.forEach(function (t) { if (t.data) m[ym(t.data)] = 1; });
+    return Object.keys(m).sort().reverse();
   }
 
   global.M = {
@@ -282,6 +460,10 @@
     ehCustoDeVida: ehCustoDeVida, ehEmpresa: ehEmpresa, ehSaida: ehSaida,
     somar: somar, custoDeVida: custoDeVida, incertezaDoMes: incertezaDoMes,
     percentualClassificado: percentualClassificado,
-    ym: ym, rotuloMes: rotuloMes
+    ym: ym, rotuloMes: rotuloMes,
+    mesesAnteriores: mesesAnteriores, mesesComDado: mesesComDado, porMes: porMes,
+    TRAVAS: TRAVAS, despesaFamiliar: despesaFamiliar,
+    gruposAcimaDoNormal: gruposAcimaDoNormal, parcelasAVencer: parcelasAVencer,
+    assinaturas: assinaturas, assinaturasNovas: assinaturasNovas
   };
 })(window);
