@@ -24,7 +24,51 @@ Spec aprovada (v1.2), plano de construção escrito
 | 6 | Fase 2 — trigger de resolução | ✅ aplicado · 8 cenários testados · 21/21 no `verificacao.sql` |
 | 7 | **Tela Triar** | ✅ na branch `redesign` · verificada no navegador com sessão real |
 | 8 | **Tela Início** | ✅ na branch `redesign` · anomalias conferidas contra SQL |
-| 9–10 | Análise, resto | pendente |
+| 9 | **Tela Análise** | ✅ na branch `redesign` · total confere com SQL |
+| 10 | Lançamentos, Mais, Planejar, Categorias | pendente |
+
+**Passo 9 — Análise.** Rosca por grupo em **SVG puro, sem Chart.js**: dependência de CDN
+quebraria o app offline, e as fontes foram auto-hospedadas justamente para isso. Janela de
+1/3/6/12 meses, drill-down por grupo, tendência de 12 meses sempre visível (a pergunta da
+tela é "ao longo do tempo" e não pode encolher junto com a janela), e as duas visões de
+cartão.
+
+### O total não era a soma das fatias
+
+Faltar **categoria** e faltar **classificação** são buracos diferentes:
+
+| | |
+|---|---|
+| sem `cls` | nem entra na base — não se sabe se é gasto da família |
+| com `cls`, sem categoria | entra na base mas não pertence a fatia nenhuma |
+
+A primeira versão somava o total sobre a base inteira, então o número embaixo da rosca
+ficava **maior que a soma dos setores desenhados** — em 12 meses, R$ 4.751 a mais, sem
+nada explicando de onde vinham. Corrigido: o total é a soma das fatias, e os dois buracos
+aparecem na linha de honestidade.
+
+Efeito colateral honesto: a cobertura de 12 meses **caiu de 89% para 71%**, porque o
+denominador passou a incluir os dois. A tela estava superestimando a própria confiabilidade.
+
+Total de 12 meses: **R$ 115.651**, idêntico ao SQL.
+
+### ⚠️ Regressão na ingestão: `data_compra` parou em maio
+
+| Período | Cartão com `data_compra` |
+|---|---|
+| até abr/26 | **89% a 96%** |
+| mai, jun, jul/26 | **0%** — nos três meses |
+
+O campo vem do parser do PDF da fatura. Desde maio o cartão entra por outro caminho e o
+dado não é mais gravado. **Não é bug das telas novas — o `dashboard.html` antigo tem as
+mesmas duas visões e vem degradando em silêncio há três meses.**
+
+A tela nova declara isso em vez de mostrar R$ 0,00 (que leria como "você não comprou"
+quando o certo é "não sei"). **Corrigir exige mexer no sync do cartão na VPS** — está na
+lista de pendências abaixo.
+
+**Bom sinal:** `Compras › Marketplace` ficou em **11,5%** dos últimos 12 meses. O risco
+registrado na spec §13 — o Marketplace virar o novo `Outros` de 31% — não se materializou.
 
 **Passo 8 — Início.** Número-herói é o custo de vida do mês (jul/26: **R$ 5.574**), com a
 faixa de incerteza logo abaixo (**+ até R$ 1.174**, 32 lançamentos) e atalho para Triar.
@@ -298,6 +342,19 @@ em [`plans/redesign-financas.md`](../plans/redesign-financas.md):
 > instalação do Claude Code — o plano foi gerado com o skill `blueprint`.
 
 ---
+
+## Pendências na VPS (`/root/financas/`)
+
+Nenhuma delas é urgente, mas as três só se resolvem lá:
+
+1. **`data_compra` parou de ser gravado em mai/26** (ver passo 9). Enquanto isso, a visão
+   "pela data da compra" só funciona para abr/26 e antes.
+2. **Confirmar a normalização de acento** usada para gerar `regras.padrao` — o front
+   calcula as duas hipóteses porque não dá para saber daqui.
+3. **A janela de 18 caracteres** de `regras.padrao` é curta demais quando o banco antepõe
+   texto burocrático. Foi o que criou a regra que mandava 63 estabelecimentos para
+   Farmácia. Aumentar a janela, ou remover prefixos conhecidos antes de cortar, resolveria
+   a classe inteira do problema.
 
 ## Pendências do Juarez
 

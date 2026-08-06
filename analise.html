@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="system">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Análise · Finanças da Família</title>
+<meta name="theme-color" content="#2f6df0">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Finanças">
+<link rel="stylesheet" href="assets/app.css">
+<style>
+  .periodo { display:flex; gap:6px; flex-wrap:wrap; }
+  .periodo button { flex:1; min-width:64px; padding:0 8px; font-size:.9375rem; }
+  .rosca-caixa { display:flex; align-items:center; justify-content:center; padding:6px 0 2px; }
+  .rosca-centro { font-family:'DM Sans',system-ui,sans-serif; }
+  .grupo-linha { display:flex; align-items:center; gap:10px; width:100%;
+                 padding:10px 0; border-bottom:1px solid var(--border2);
+                 background:none; border-left:0; border-right:0; border-top:0;
+                 color:inherit; font:inherit; text-align:left; cursor:pointer;
+                 min-height:var(--alvo); }
+  .grupo-linha:last-of-type { border-bottom:0; }
+  .grupo-linha .nome { flex:1; min-width:0; }
+  .grupo-linha .pct { color:var(--muted); font-size:.8125rem; width:44px; text-align:right; }
+  .seta { color:var(--muted); width:14px; }
+  .subs { padding:2px 0 10px 26px; }
+  .sub-linha { display:flex; gap:10px; padding:6px 0; font-size:.9375rem; }
+  .sub-linha .nome { flex:1; min-width:0; color:var(--muted); }
+  .barras { display:flex; align-items:flex-end; gap:4px; height:96px; margin-top:8px; }
+  .barra-mes { flex:1; display:flex; flex-direction:column; justify-content:flex-end;
+               align-items:center; gap:4px; min-width:0; }
+  .barra-mes .b { width:100%; background:var(--acento); border-radius:3px 3px 0 0; min-height:2px; }
+  .barra-mes .r { font-size:.625rem; color:var(--muted); white-space:nowrap; }
+  .barra-mes.destaque .b { background:var(--badge-fg); }
+  .visao { display:flex; gap:6px; margin-bottom:10px; }
+  .visao button { flex:1; }
+</style>
+</head>
+<body>
+
+<div class="cabecalho">
+  <h1 class="titulo">Análise</h1>
+  <span class="frescor" id="frescor"></span>
+</div>
+
+<div class="envolucro" id="tela">
+  <div class="cartao"><div class="esqueleto"><div class="esq-linha"><div class="esq"></div></div></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/modelo.js"></script>
+<script src="assets/db.js"></script>
+<script src="assets/ui.js"></script>
+<script>
+'use strict';
+const $ = UI.$;
+let TX = [], CATS = [], MESES = [];
+let janela = 1;            // meses incluídos: 1, 3, 6 ou 12
+let aberto = null;         // grupo em drill-down
+let visaoCartao = 'parcela';
+
+function cat(id) { return CATS.find(c => c.id === id) || null; }
+function grupoDe(t) { const c = cat(t.categoria_id); return c ? c.grupo : null; }
+function subDe(t) { const c = cat(t.categoria_id); return c ? c.nome : null; }
+
+function mesesDaJanela() { return MESES.slice(0, janela); }
+function noPeriodo(t) { return mesesDaJanela().indexOf(M.ym(t.data)) !== -1; }
+
+/* A análise é sobre DESPESA DA FAMÍLIA. Empresas, receitas e movimentação
+   respondem outras perguntas; misturá-las aqui distorce o gráfico que
+   deveria responder "para onde vai o meu dinheiro". */
+function base() {
+  return TX.filter(t => noPeriodo(t) && M.despesaFamiliar(t) &&
+    ['Movimentação', 'Receitas'].indexOf(grupoDe(t)) === -1);
+}
+
+/* ------------------------------------------------------------------
+   Rosca em SVG puro
+   ------------------------------------------------------------------
+   Sem Chart.js: uma dependência de CDN quebraria o app offline, e as
+   fontes foram auto-hospedadas justamente para isso. Um anel de setores é
+   `stroke-dasharray` sobre um círculo — não precisa de biblioteca. */
+function rosca(fatias, total) {
+  const R = 54, C = 2 * Math.PI * R;
+  let acc = 0;
+  const arcos = fatias.map(f => {
+    const frac = total ? f.valor / total : 0;
+    const seg = frac * C;
+    const el = '<circle cx="64" cy="64" r="' + R + '" fill="none" stroke="' + f.cor +
+      '" stroke-width="20" stroke-dasharray="' + seg.toFixed(2) + ' ' + (C - seg).toFixed(2) +
+      '" stroke-dashoffset="' + (-acc).toFixed(2) + '" transform="rotate(-90 64 64)"></circle>';
+    acc += seg;
+    return el;
+  }).join('');
+  return '<div class="rosca-caixa"><svg width="150" height="150" viewBox="0 0 128 128" ' +
+    'role="img" aria-label="Distribuição por grupo">' + arcos + '</svg></div>';
+}
+
+function desenhar() {
+  const pendentes = TX.filter(M.precisaTriagem).length;
+  UI.montarNav('analise', pendentes);
+  UI.marcarFrescor($('frescor'), 'tx');
+
+  const b = base();
+
+  /* Faltar CATEGORIA e faltar CLASSIFICAÇÃO são buracos diferentes, e a
+     tela precisa tratar os dois:
+
+       sem cls        -> nem chega em base(), porque não se sabe se é gasto
+                         da família. É a incerteza "clássica".
+       cls sem categoria -> chega em base() mas não pertence a fatia nenhuma.
+
+     A primeira versão somava o total sobre base() inteiro, então o número
+     embaixo da rosca ficava MAIOR que a soma dos setores desenhados — em 12
+     meses, R$ 4.751 a mais, sem nada explicando de onde vinham. O total
+     agora é a soma das fatias, e os dois buracos são declarados. */
+  const porGrupo = {};
+  let semCategoria = 0;
+  b.forEach(t => {
+    const g = grupoDe(t);
+    if (!g) { semCategoria += Number(t.valor) || 0; return; }
+    porGrupo[g] = (porGrupo[g] || 0) + (Number(t.valor) || 0);
+  });
+  const fatias = Object.entries(porGrupo)
+    .sort((a, b2) => b2[1] - a[1])
+    .map(([g, v]) => ({ grupo: g, valor: v, cor: M.COR_GRUPO[g] || '#9aa3b2' }));
+
+  const total = fatias.reduce((a, f) => a + f.valor, 0);
+
+  const doPeriodo = TX.filter(noPeriodo);
+  const semCls = M.incertezaDoMes(doPeriodo);
+  const foraDaRosca = semCls + semCategoria;
+  const cobertura = (total + foraDaRosca) ? total / (total + foraDaRosca) : 1;
+
+  // Tendência: 12 meses, sempre — a pergunta da tela é "ao longo do tempo",
+  // e ela não pode encolher junto com a janela escolhida.
+  const doze = MESES.slice(0, 12).slice().reverse();
+  const serie = doze.map(m => ({
+    mes: m,
+    valor: M.custoDeVida(TX.filter(t => M.ym(t.data) === m))
+  }));
+  const topo = Math.max.apply(null, serie.map(s => s.valor).concat([1]));
+
+  const rotuloJanela = janela === 1 ? M.rotuloMes(MESES[0]) : 'últimos ' + janela + ' meses';
+
+  $('tela').innerHTML =
+    '<div class="cartao">' +
+      '<div class="periodo">' +
+        [1, 3, 6, 12].map(n =>
+          '<button class="btn ' + (n === janela ? '' : 'alt') + '" data-j="' + n + '">' +
+          (n === 1 ? 'Mês' : n + ' meses') + '</button>').join('') +
+      '</div>' +
+    '</div>' +
+
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0">Custo de vida · ' + rotuloJanela + '</p>' +
+      rosca(fatias, total) +
+      '<p class="heroi" style="text-align:center;font-size:1.75rem">' + UI.BRL0(total) + '</p>' +
+
+      (fatias.length
+        ? fatias.map(f =>
+            '<button class="grupo-linha" data-g="' + UI.escapar(f.grupo) + '" ' +
+                    'aria-expanded="' + (aberto === f.grupo) + '">' +
+              '<span class="ponto" style="background:' + f.cor + '"></span>' +
+              '<span class="nome">' + UI.escapar(f.grupo) + '</span>' +
+              '<span class="pct">' + (total ? Math.round(f.valor / total * 100) : 0) + '%</span>' +
+              '<b class="valor">' + UI.BRL(f.valor) + '</b>' +
+              '<span class="seta">' + (aberto === f.grupo ? '▾' : '▸') + '</span>' +
+            '</button>' +
+            (aberto === f.grupo ? subsDe(f.grupo, b) : ''))
+          .join('')
+        : '<p class="mudo">Nada classificado neste período.</p>') +
+
+      // A fatia "a classificar" NÃO entra na rosca: mostrá-la hachurada
+      // pune visualmente todo mês. Mas omiti-la sem avisar seria mentir por
+      // omissão — daí a linha (spec §3).
+      (foraDaRosca > 0
+        ? '<p class="honestidade">Calculado sobre <b>' + UI.pct(cobertura) + '</b> de ' +
+          rotuloJanela + '. Ficaram de fora da rosca ' +
+          (semCls > 0 ? '<b>' + UI.BRL(semCls) + '</b> sem classificação' : '') +
+          (semCls > 0 && semCategoria > 0 ? ' e ' : '') +
+          (semCategoria > 0 ? '<b>' + UI.BRL(semCategoria) + '</b> sem categoria' : '') +
+          ' — podem mudar estas proporções. <a href="triar.html">Classificar →</a></p>'
+        : '<p class="honestidade">Período 100% classificado.</p>') +
+    '</div>' +
+
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0 0 4px">Custo de vida mês a mês</p>' +
+      '<div class="barras">' +
+        serie.map(s =>
+          '<div class="barra-mes' + (mesesDaJanela().indexOf(s.mes) !== -1 ? ' destaque' : '') + '" ' +
+               'title="' + M.rotuloMes(s.mes) + ': ' + UI.BRL(s.valor) + '">' +
+            '<span class="b" style="height:' + Math.round(s.valor / topo * 82) + 'px"></span>' +
+            '<span class="r">' + M.rotuloMes(s.mes).slice(0, 3) + '</span>' +
+          '</div>').join('') +
+      '</div>' +
+      '<p class="mudo" style="font-size:.8125rem;margin:8px 0 0">Média do período visível: ' +
+        UI.BRL(serie.reduce((a, s) => a + s.valor, 0) / (serie.length || 1)) + '</p>' +
+    '</div>' +
+
+    cartaoCartao();
+
+  document.querySelectorAll('[data-j]').forEach(el => {
+    el.onclick = () => { janela = Number(el.dataset.j); aberto = null; desenhar(); };
+  });
+  document.querySelectorAll('[data-g]').forEach(el => {
+    el.onclick = () => { aberto = (aberto === el.dataset.g) ? null : el.dataset.g; desenhar(); };
+  });
+  document.querySelectorAll('[data-v]').forEach(el => {
+    el.onclick = () => { visaoCartao = el.dataset.v; desenhar(); };
+  });
+}
+
+function subsDe(grupo, b) {
+  const porSub = {};
+  b.forEach(t => {
+    if (grupoDe(t) !== grupo) return;
+    const s = subDe(t) || '—';
+    porSub[s] = (porSub[s] || 0) + (Number(t.valor) || 0);
+  });
+  const linhas = Object.entries(porSub).sort((a, c) => c[1] - a[1]);
+  if (!linhas.length) return '';
+  return '<div class="subs">' + linhas.map(([s, v]) =>
+    '<div class="sub-linha"><span class="nome">' + UI.escapar(s) + '</span>' +
+    '<b class="valor">' + UI.BRL(v) + '</b></div>').join('') + '</div>';
+}
+
+/* ------------------------------------------------------------------
+   Cartão: duas visões
+   ------------------------------------------------------------------
+   "Parcela a parcela" é a visão CONFIÁVEL: cada parcela cai no mês da sua
+   fatura, e a soma bate com o que saiu da conta.
+
+   "Pela data da compra" mostra o valor cheio no mês em que a compra
+   aconteceu — responde "quanto eu comprei", não "quanto eu paguei". Só
+   funciona onde `data_compra` existe: 80,6% dos lançamentos de cartão. Os
+   19,4% restantes são declarados, nunca escondidos. */
+function cartaoCartao() {
+  const doCartao = TX.filter(t => noPeriodo(t) && M.despesaFamiliar(t) &&
+    /cart/i.test(String(t.src || '')));
+  if (!doCartao.length) return '';
+
+  const comData = doCartao.filter(t => t.data_compra);
+  const semData = doCartao.length - comData.length;
+
+  let corpo;
+  if (visaoCartao === 'parcela') {
+    corpo = '<p class="heroi" style="font-size:1.5rem;margin:4px 0">' +
+      UI.BRL(M.somar(doCartao)) + '</p>' +
+      '<p class="mudo" style="margin:0">O que as faturas do período cobraram. ' +
+      'Bate com o que saiu da conta.</p>';
+  } else if (!comData.length) {
+    /* Zero cobertura: mostrar "R$ 0,00" seria pior que não mostrar nada —
+       leria como "você não comprou", quando o certo é "não sei".
+
+       `data_compra` vem do parser do PDF da fatura. Medido em 06/08/2026:
+       até abr/26 o preenchimento era de 89% a 96%; de mai/26 em diante é
+       ZERO, nos três meses. O cartão passou a entrar por outro caminho e o
+       campo parou de ser gravado — regressão na ingestão, não nesta tela.
+       Vale também para o `dashboard.html` antigo, que tem as mesmas visões. */
+    corpo = '<p style="margin:4px 0 0"><b>Sem dado para este período.</b></p>' +
+      '<p class="honestidade">Nenhum dos ' + doCartao.length + ' lançamentos de cartão ' +
+      'do período tem a data da compra. O campo vem do PDF da fatura e parou de ser ' +
+      'preenchido a partir de <b>mai/26</b> — até abr/26 a cobertura era de 89% a 96%. ' +
+      'Escolha um período que alcance abril ou antes, ou verifique o sync do cartão na VPS.</p>';
+  } else {
+    // Valor cheio da compra = valor da parcela × total de parcelas.
+    let cheio = 0;
+    comData.forEach(t => {
+      const p = /^(\d+)\/(\d+)$/.exec(String(t.parcela || ''));
+      cheio += (Number(t.valor) || 0) * (p ? Number(p[2]) : 1);
+    });
+    corpo = '<p class="heroi" style="font-size:1.5rem;margin:4px 0">' + UI.BRL(cheio) + '</p>' +
+      '<p class="mudo" style="margin:0">Valor cheio do que foi comprado no período, ' +
+      'incluindo parcelas que ainda vão vencer.</p>' +
+      (semData
+        ? '<p class="honestidade">' + semData + ' de ' + doCartao.length +
+          ' lançamentos de cartão não têm a data da compra e ficaram de fora desta conta ' +
+          '(' + Math.round(comData.length / doCartao.length * 100) + '% de cobertura).</p>'
+        : '');
+  }
+
+  return '<div class="cartao">' +
+    '<p class="mudo" style="margin:0 0 8px">Cartão</p>' +
+    '<div class="visao">' +
+      '<button class="btn ' + (visaoCartao === 'parcela' ? '' : 'alt') + '" data-v="parcela">Parcela a parcela</button>' +
+      '<button class="btn ' + (visaoCartao === 'compra' ? '' : 'alt') + '" data-v="compra">Pela data da compra</button>' +
+    '</div>' + corpo + '</div>';
+}
+
+async function carregar(forcar) {
+  try {
+    const d = await DB.tudo(forcar);
+    TX = d.tx; CATS = d.categorias;
+    MESES = M.mesesComDado(TX);
+    desenhar();
+  } catch (e) {
+    UI.erro($('tela'), e.message, () => carregar(true));
+    UI.montarNav('analise', 0);
+  }
+}
+
+(async function () {
+  const perfil = await UI.exigirSessao();
+  if (!perfil) return;
+  UI.puxarParaAtualizar(() => carregar(true));
+  await carregar(false);
+})();
+</script>
+</body>
+</html>
