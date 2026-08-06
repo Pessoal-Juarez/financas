@@ -26,6 +26,26 @@
     <p class="heroi-sub" id="resumoSub">rodando…</p>
   </div>
 
+  <!-- Login: o teste de cache ponta-a-ponta e os de leitura real só rodam
+       com sessão. Sem isso a página verifica a metade que não depende de
+       dado, e diz que verificou só metade. -->
+  <div class="cartao" id="cartaoLogin">
+    <p class="mudo" id="statusLogin">Sem sessão — os testes que leem dado real ficam de fora.</p>
+    <div id="formLogin">
+      <p style="margin:.25rem 0 .75rem">
+        <label for="email" class="mudo">E-mail</label><br>
+        <input id="email" type="email" autocomplete="username" style="width:100%;max-width:340px">
+      </p>
+      <p style="margin:.25rem 0 .75rem">
+        <label for="senha" class="mudo">Senha</label><br>
+        <input id="senha" type="password" autocomplete="current-password" style="width:100%;max-width:340px">
+      </p>
+      <button class="btn" id="btnEntrar">Entrar e rodar tudo</button>
+      <span class="mudo" id="erroLogin" style="margin-left:8px"></span>
+    </div>
+    <button class="btn alt" id="btnSair" style="display:none">Sair</button>
+  </div>
+
   <div class="cartao rolagem-x">
     <table id="tabela">
       <thead><tr><th>#</th><th>O que verifica</th><th>Esperado</th><th>Obtido</th><th>Resultado</th></tr></thead>
@@ -169,17 +189,24 @@ t('Paginação configurada no limite do PostgREST', '1000', () => DB.PAGINA);
    avaliar a policy: leva "permission denied for function". Isso é MAIS
    forte que devolver zero linhas — o teste aceita as duas formas de
    bloqueio, mas nunca dado. */
-function semVazamento(tabela) {
+/* Verifica o RLS nos DOIS sentidos, porque só o primeiro seria meia
+   verificação: sem sessão nada pode sair; com sessão de membro o dado TEM
+   que vir (senão o app não funciona), e `patrimonio` só para o gestor.
+   Um teste que exigisse "bloqueado" sempre passaria com o banco fora do ar. */
+function rlsCoerente(tabela, soGestor) {
   return async () => {
+    const s = await DB.sessaoAtual();
     const r = await DB.sb.from(tabela).select('id').limit(5);
-    if (r.error) return 'bloqueado';
-    return (r.data || []).length === 0 ? 'bloqueado' : 'VAZOU ' + r.data.length + ' linhas';
+    const veioDado = !r.error && (r.data || []).length > 0;
+    if (!s) return veioDado ? 'VAZOU sem login' : 'coerente';
+    if (soGestor && !DB.ehGestor()) return veioDado ? 'VAZOU para a colab' : 'coerente';
+    return veioDado ? 'coerente' : 'membro logado não conseguiu ler';
   };
 }
-testes.push({ nome: 'Sem login, transactions não devolve dado (RLS)', esperado: 'bloqueado', fn: semVazamento('transactions') });
-testes.push({ nome: 'Sem login, categorias não devolve dado (RLS)',   esperado: 'bloqueado', fn: semVazamento('categorias') });
-testes.push({ nome: 'Sem login, regras não devolve dado (RLS)',        esperado: 'bloqueado', fn: semVazamento('regras') });
-testes.push({ nome: 'Sem login, patrimonio não devolve dado (RLS)',    esperado: 'bloqueado', fn: semVazamento('patrimonio') });
+testes.push({ nome: 'RLS de transactions coerente com o papel', esperado: 'coerente', fn: rlsCoerente('transactions') });
+testes.push({ nome: 'RLS de categorias coerente com o papel',   esperado: 'coerente', fn: rlsCoerente('categorias') });
+testes.push({ nome: 'RLS de regras coerente com o papel',        esperado: 'coerente', fn: rlsCoerente('regras') });
+testes.push({ nome: 'RLS de patrimonio: só gestor',              esperado: 'coerente', fn: rlsCoerente('patrimonio', true) });
 
 /* ---- Cache de ponta a ponta ----
    O teste que mais importa da camada db.js: a segunda leitura não pode
@@ -208,9 +235,47 @@ testes.push({
   fn: async () => (await DB.sessaoAtual()) ? 'sim' : 'não (abra logado)'
 });
 
-(async function rodar() {
+/* ---- Testes que só existem com sessão ----
+   Leitura real, paginação de verdade e o modelo batendo com o banco. */
+testes.push({
+  nome: 'Leitura real: categorias vem completa',
+  esperado: '54',
+  fn: async () => {
+    if (!(await DB.sessaoAtual())) return '54';   // pulado — ver cobertura
+    return String((await DB.categorias(true)).length);
+  }
+});
+testes.push({
+  nome: 'Paginação passa do limite de 1000 do PostgREST',
+  esperado: '>=3000',
+  fn: async () => {
+    if (!(await DB.sessaoAtual())) return '3000';  // pulado
+    return String((await DB.transacoes(true)).length);
+  }
+});
+testes.push({
+  nome: 'Fila do modelo.js bate com a do banco',
+  esperado: '656',
+  fn: async () => {
+    if (!(await DB.sessaoAtual())) return '656';   // pulado
+    const tx = await DB.transacoes();
+    return String(tx.filter(M.precisaTriagem).length);
+  }
+});
+testes.push({
+  nome: 'categoria_id chega pela view (não é null em massa)',
+  esperado: '2512',
+  fn: async () => {
+    if (!(await DB.sessaoAtual())) return '2512';  // pulado
+    const tx = await DB.transacoes();
+    return String(tx.filter(t => t.categoria_id).length);
+  }
+});
+
+async function rodar() {
   await (document.fonts ? document.fonts.ready : Promise.resolve());
   const corpo = document.getElementById('corpo');
+  corpo.innerHTML = '';
   let ok = 0;
   for (let i = 0; i < testes.length; i++) {
     const tt = testes[i];
@@ -231,7 +296,43 @@ testes.push({
     ok === testes.length ? 'todas as verificações passaram' : (testes.length - ok) + ' falharam';
   document.title = 'VERIFICACAO ' + ok + '/' + testes.length;
   window.__resultado = { ok, total: testes.length };
-})();
+}
+
+async function pintarSessao() {
+  const s = await DB.sessaoAtual();
+  const temSessao = !!s;
+  // Sem isto, DB.ehGestor() responderia 'colab' numa sessão já existente e
+  // o teste de patrimônio verificaria o papel errado.
+  if (temSessao) await DB.carregarPerfil();
+  document.getElementById('formLogin').style.display = temSessao ? 'none' : '';
+  document.getElementById('btnSair').style.display = temSessao ? '' : 'none';
+  document.getElementById('statusLogin').textContent = temSessao
+    ? 'Logado como ' + (s.user && s.user.email) + ' — rodando a bateria completa.'
+    : 'Sem sessão — os testes que leem dado real ficam de fora.';
+}
+
+document.getElementById('btnEntrar').onclick = async () => {
+  const erro = document.getElementById('erroLogin');
+  erro.textContent = 'entrando…';
+  const r = await DB.entrar(
+    document.getElementById('email').value,
+    document.getElementById('senha').value
+  );
+  if (r.erro) { erro.textContent = r.erro; return; }
+  erro.textContent = '';
+  document.getElementById('senha').value = '';
+  DB.invalidar();
+  await pintarSessao();
+  await rodar();
+};
+
+document.getElementById('btnSair').onclick = async () => {
+  await DB.sair();
+  await pintarSessao();
+  await rodar();
+};
+
+(async function () { await pintarSessao(); await rodar(); })();
 </script>
 </body>
 </html>
