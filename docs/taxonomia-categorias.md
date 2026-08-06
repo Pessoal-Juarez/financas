@@ -74,13 +74,21 @@ Secretária/Babá · Água (galão) · Lazer → Outros lazer · Casa → Manute
 Não são despesa — são movimentação de dinheiro. Hoje poluem o gráfico e inflam
 totais. `Transfer. própria` sozinha soma R$ 82.633 e `Resgate CDB` R$ 137.474.
 
-### Voltam para a fila de triagem (não são categoria)
+### Voltam para a fila — mas para a fila de HISTÓRICO, não para a triagem
 `Outros` (355 lançamentos!) · `Indefinido` (69) · `Clínica?` ·
 `Locação (não confirmado)` · `Receita a identificar` · `Serviços` ·
 `Despesa OQV` · `Loja esposa` · `Receita clínica`
 
-Rótulo com "?" ou "a identificar" é dívida escondida no dado. Vai para a triagem
+Rótulo com "?" ou "a identificar" é dívida escondida no dado. Vai para a fila
 com o motivo visível.
+
+> ⚠️ **Medido em 06/08/2026:** essas 9 categorias somam **387 lançamentos que ainda não
+> estavam pendentes** (R$ 21.754 em saídas). Jogá-los na triagem levaria a fila de
+> **623 para 1.010** — o app redesenhado estrearia com mais trabalho do que o atual.
+>
+> **Decisão:** eles vão para uma segunda fila, **"Arrumar o histórico"**, dentro de
+> "Mais" — sem contador na navegação, sem prazo, ordenada por valor decrescente. A
+> triagem do fluxo corrente segue intocada em 623 → 516. Ver `spec.md` §4 e §7.
 
 ## O que isso exige do banco
 

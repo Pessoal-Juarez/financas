@@ -1,9 +1,21 @@
 # spec.md — Redesign do app Finanças da Família
 
-**Versão:** 1.0 · **Data:** 05/08/2026 · **Status:** aguardando revisão do Juarez
+**Versão:** 1.1 · **Data:** 06/08/2026 · **Status:** ✅ **revisada e aprovada pelo Juarez**
 
-Especificação do redesign completo das telas. Consolida as decisões tomadas no
-brainstorming de 05/08/2026. **Não contém implementação** — o próximo passo é `/break`.
+Especificação do redesign completo das telas. Consolida as decisões do brainstorming de
+05/08/2026 e da revisão de 06/08/2026. **Não contém implementação** — o próximo passo é
+quebrar em tarefas e executar a Fase 1 da migração.
+
+### O que mudou da v1.0 para a v1.1 (revisão de 06/08/2026)
+
+| # | Mudança | Onde |
+|---|---|---|
+| 1 | **Planejar passa a morar dentro de "Mais"** — a barra tinha 5 itens e a tela ficara órfã | §3 |
+| 2 | **Alvo numérico de sucesso**: sem classificação < 8% até 30/09/2026 | §1 |
+| 3 | **Duas filas separadas** — a taxonomia jogaria +387 lançamentos na triagem (623 → 1.010, medido no banco). Fluxo corrente e dívida histórica passam a ser filas distintas | §4, §7 |
+| 4 | **Fase 3 da migração cortada do escopo** — única operação irreversível, em banco sem PITR, por ganho cosmético | §6, §10 |
+| 5 | **Comportamento do trigger definido** para texto desconhecido vindo da VPS | §6 |
+| 6 | **CDB não vem pelo Open Finance** — verificado em 06/08. Automação cobre 1 das 3 linhas do patrimônio | §7 |
 
 ---
 
@@ -17,6 +29,16 @@ verificável, na ordem de prioridade que o Juarez definiu:
 
 Não são objetivos: cortar gastos por disciplina imposta (o app não é um freio), nem
 maximizar o fôlego da reserva. Esses podem ser consequência, não a métrica.
+
+### Alvo verificável (definido em 06/08/2026)
+
+**Lançamentos sem classificação abaixo de 8% até 30/09/2026** — hoje são 19,9%
+(623 de 3.132). É o único número que diz se o redesign funcionou; o resto é gosto.
+
+Como o alvo é atingível sem heroísmo: 107 dos 623 caem na varredura retroativa de um
+clique (§7, verificado no banco em 06/08), e o restante depende da triagem ficar rápida
+o bastante para caber num intervalo de café. A fila da dívida histórica (§4) **não conta
+para este alvo** — ela tem ritmo próprio e nenhum prazo.
 
 ### A tensão central que governa o design
 
@@ -53,22 +75,32 @@ Qualquer funcionalidade que dependa do balde caro precisa justificar o consumo.
 
 ## 3. Telas
 
-Navegação inferior fixa, 5 itens. `Triar` exibe contador de pendentes.
+Navegação inferior fixa, **5 itens, idêntica para os dois papéis**. `Triar` exibe
+contador de pendentes — e é o **único** item com contador.
 
 ```
 Início · Triar · Lançamentos · Análise · Mais
 ```
 
-| # | Tela | Pergunta que responde | Papel |
-|---|---|---|---|
-| 1 | **Início** | "para onde foi meu dinheiro este mês?" | ambos |
-| 2 | **Triar** | "o que falta classificar?" | ambos |
-| 3 | **Lançamentos** | "onde está aquele lançamento?" | ambos |
-| 4 | **Análise** | "qual é o meu padrão ao longo do tempo?" | ambos (colab sem empresas) |
-| 5 | **Planejar** | "quanto posso gastar? quanto tenho?" | **só gestor** |
-| 6 | **Mais** | ferramentas e preferências | ambos |
-| 6a | **Categorias** | editar grupos e subcategorias | ambos (colab só cria) |
-| 6b | **OQV** | contas da empresa | **só gestor** |
+| # | Tela | Pergunta que responde | Onde fica | Papel |
+|---|---|---|---|---|
+| 1 | **Início** | "para onde foi meu dinheiro este mês?" | barra | ambos |
+| 2 | **Triar** | "o que falta classificar?" | barra | ambos |
+| 3 | **Lançamentos** | "onde está aquele lançamento?" | barra | ambos |
+| 4 | **Análise** | "qual é o meu padrão ao longo do tempo?" | barra | ambos (colab sem empresas) |
+| 5 | **Mais** | ferramentas e preferências | barra | ambos |
+| 5a | **Planejar** | "quanto posso gastar? quanto tenho?" | dentro de Mais | **só gestor** |
+| 5b | **Arrumar o histórico** | "e a bagunça antiga?" | dentro de Mais | ambos |
+| 5c | **Categorias** | editar grupos e subcategorias | dentro de Mais | ambos (colab só cria) |
+| 5d | **OQV** | contas da empresa | dentro de Mais | **só gestor** |
+
+**Decisão de 06/08/2026 — Planejar mora dentro de "Mais".** Na v1.0 a barra declarava 5
+itens mas a tabela listava 8 telas, e Planejar (orçamento + patrimônio + fôlego) tinha
+ficado de fora sem lugar definido. As alternativas eram promovê-la a 5º item — o que
+obrigaria a **barra a mudar conforme o papel**, já que a Raiane não vê Planejar (§8) — ou
+ir para 6 itens, o que aperta os alvos de toque abaixo dos 44px que acabamos de corrigir
+em `e38fe5b`. Com ela dentro de Mais, a barra é a mesma para os dois, e o que varia por
+papel é só a lista dentro de Mais.
 
 ### Decisões de conteúdo
 
@@ -126,6 +158,40 @@ Orçamento com 9 linhas se revisa em dois minutos; com 40, é abandonado no segu
 
 Taxonomia completa e de-para das 73 categorias atuais:
 [`taxonomia-categorias.md`](taxonomia-categorias.md).
+
+### ⚠️ O custo escondido da taxonomia — medido em 06/08/2026
+
+O de-para manda 9 categorias "de volta para a fila de triagem" (`Outros` com 355
+lançamentos, `Indefinido`, `Clínica?`, `Serviços`, `Loja esposa`, `Receita a
+identificar`…). Cruzando com o que já está pendente:
+
+| | |
+|---|---|
+| Fila hoje (`cls` indefinido) | 623 |
+| Entram na fila pela taxonomia, e ainda não estavam | **+387** · R$ 21.754 em saídas |
+| Fila logo após a migração, se nada for feito | **1.010** |
+
+Ou seja: aplicada de forma ingênua, a taxonomia **quase dobra a fila** e o app
+redesenhado estrearia com mais trabalho pendente do que o atual — atacando de frente o
+objetivo (d) e o alvo de §1.
+
+**Decisão: duas filas, com pesos diferentes.**
+
+| | **Triar** | **Arrumar o histórico** |
+|---|---|---|
+| O que é | fluxo corrente: 623 hoje, 516 após a varredura | dívida antiga: os 387 |
+| Onde | item da barra | dentro de "Mais" |
+| Contador na navegação | **sim** | **não** |
+| Conta para o alvo de §1 | sim | **não** |
+| Prazo | 30/09/2026 | nenhum |
+
+As duas alimentam a linha de honestidade de Análise (§3) — o número continua declarando
+toda a incerteza, somada. O que muda é **onde o app cobra**: a dívida histórica fica
+disponível para quem quiser mexer, sem badge, sem vermelho, sem lembrete.
+
+Alternativas descartadas: manter `Outros` como subcategoria legítima (a fila ficaria em
+516, mas o buraco de 31% do gráfico — o problema que originou a taxonomia — continuaria
+lá, só renomeado); e assumir a fila de 1.010 (honesto com o dado, péssimo para o objetivo).
 
 ---
 
@@ -195,7 +261,7 @@ padrão externo. Tabela separada seria cerimônia sem ganho.
 últimos 4 meses, valor dentro de ±15%. Uma tabela exigiria manutenção manual a cada
 mudança de preço, e ninguém faz isso.
 
-### Migração em 3 fases
+### Migração em 2 fases — ambas reversíveis
 
 **Fase 1 — aditiva.** Cria `categorias`, semeia, adiciona `categoria_id`, faz backfill.
 O texto continua sendo a fonte da verdade. VPS, regras e telas atuais seguem funcionando
@@ -206,7 +272,22 @@ a VPS grava para o `categoria_id` correspondente. **Os scripts em `/root/financa
 precisam de nenhuma alteração.** Isso importa: a VPS é deploy separado com cron às 7h;
 um erro lá ficaria invisível até o dia seguinte.
 
-**Fase 3 — destrutiva, só após um mês estável.** Remove as colunas de texto.
+> **Comportamento do trigger quando o texto é desconhecido** (definido em 06/08/2026 —
+> a v1.0 não dizia). Se a VPS gravar um `categoria` que não existe em `categorias`:
+> `categoria_id` fica **nulo**, o texto original é **preservado intacto**, e o lançamento
+> cai na fila de triagem. O trigger **nunca cria categoria** e **nunca descarta o texto**.
+> Categoria nova nasce por decisão humana na tela de Categorias, não por efeito colateral
+> de um cron às 7h.
+
+**A Fase 3 (destrutiva) foi cortada do escopo em 06/08/2026.** Ela removeria
+`transacoes.categoria` e `regras.categoria` após um mês estável. Motivo do corte: era a
+**única operação irreversível de todo o plano**, num Supabase **plano free — sem
+point-in-time recovery**, em troca de um ganho puramente cosmético (duas colunas de texto
+em 3.132 linhas não custam performance nem dinheiro). Mantidas, elas ainda servem de
+**backup legível** do de-para e deixam a VPS funcionando mesmo que o trigger falhe.
+Consequência assumida: o dado fica denormalizado para sempre, e toda escrita de categoria
+precisa manter texto e `categoria_id` coerentes — responsabilidade do trigger e das
+asserções de `verificacao.sql` (§10).
 
 ⚠️ **`regras.categoria` é texto.** Renomear ou fundir categorias sem atualizar as 520
 regras na mesma transação faz a auto-classificação parar de acertar — piorando
@@ -237,8 +318,23 @@ lançamento sem classificação
 porque regras só valem para lançamentos novos. Tela de lote com os 107, sugestão por
 linha, desmarcável, e um "Aplicar todos". Derruba a fila para ~516 num clique.
 
+✅ **Verificado no banco em 06/08/2026:** rodando a normalização real (NFKD, só A-Z,
+maiúsculas, 18 chars) dos 623 pendentes contra as 520 regras por "contém", o resultado
+é exatamente **107**. O número não é estimativa.
+
 **Propor, nunca aplicar calado.** Mexer em 107 lançamentos sem o usuário ver seria
 rápido e errado.
+
+### Arrumar o histórico — a segunda fila
+
+Tela dentro de "Mais", alimentada pelos **387** lançamentos que a nova taxonomia
+desclassifica (§4). Mesmo cartão da triagem, mesma mecânica de aprendizado, **sem
+contador na navegação e sem prazo**. Ordenada por valor decrescente, para que o esforço
+de quem entrar ali por dez minutos caia onde muda o gráfico.
+
+A separação existe para proteger o objetivo (d): a dívida histórica é trabalho opcional
+de arqueologia, e misturá-la com o fluxo corrente faria a fila parecer eternamente
+perdida — o jeito mais rápido de fazer alguém desistir das duas.
 
 ### Detecção de anomalias (card "O que fugiu do padrão")
 
@@ -256,9 +352,23 @@ O saldo da conta corrente Itaú **passa a vir do sync** (balde barato, diário) 
 digitação manual. Rows com `fonte='itau'` são atualizadas pelo cron; `fonte='manual'`
 (BTG preso como garantia) exibe lápis e alerta quando passa de 30 dias sem atualização.
 
-Hoje o patrimônio está parado desde 05/06 — dois meses — o que torna o fôlego de
-1,8 meses não confiável. **Pendente de verificação:** se o saldo do CDB vem pelo Open
-Finance ou só o da conta corrente. Verificar custa 1 das 8 chamadas caras do mês.
+✅ **Verificado em 06/08/2026 — e a resposta é não.** O Open Finance devolve **uma única
+conta**: a corrente do Itaú (`CONTA_DEPOSITO_A_VISTA`, conjunta). **Não existe conta de
+investimento na resposta — o CDB não vem pela API e não virá.**
+
+| Linha de `patrimonio` | Valor registrado (05/06) | Fonte a partir de agora |
+|---|---|---|
+| Conta corrente Itaú | R$ 9.261,99 | **`itau`** — automática, diária, balde barato |
+| CDB Itaú | R$ 7.365,79 | `manual` |
+| BTG (preso como garantia) | R$ 12.000,00 | `manual` |
+
+O saldo real da conta em 06/08 às 14:10 era **R$ 12.778,44** (integralmente em aplicação
+automática) — **R$ 3.516 acima** do registrado. Só isso já move o fôlego.
+
+**Consequência de design:** a automação cobre **1 das 3 linhas**, e as duas manuais são
+57% do patrimônio. O alerta de 30 dias deixa de ser detalhe de acabamento e passa a ser
+**a peça que sustenta a confiabilidade do fôlego** — sem ele, Planejar volta a exibir um
+número velho com cara de número fresco. Tratar como requisito, não como enfeite.
 
 ### Crons existentes (inalterados)
 
@@ -316,9 +426,19 @@ Sem suíte automatizada — dois usuários, e teste quebrado é pior que teste a
 3. **Validação no navegador medida, não observada** — alturas de toque, contraste,
    contagem de linhas. Foi assim que se descobriu o desalinhamento do DM Sans.
 
-**Reversão:** Fases 1 e 2 são aditivas (desfazer = remover coluna).
-⚠️ **Fase 3 é destrutiva e o Supabase é plano free — sem point-in-time recovery.**
-Exportar `transacoes` e `regras` em CSV, guardado fora do banco, antes de executá-la.
+**Reversão: todo o plano é reversível.** As duas fases são aditivas — desfazer é remover
+a coluna `categoria_id` e o trigger; o texto nunca deixa de existir. Com a Fase 3 cortada
+(§6), **não há nenhuma operação destrutiva no roteiro**, o que era a única exposição real
+num plano free sem point-in-time recovery.
+
+Ainda assim, **exportar `transacoes` e `regras` em CSV antes da Fase 1** e guardar fora
+do banco. Custa dois minutos e cobre o cenário que sobrou: um `UPDATE` de backfill mal
+escrito rodando em 3.132 linhas.
+
+**Asserção extra exigida pelo corte da Fase 3:** como texto e `categoria_id` convivem
+para sempre, `verificacao.sql` precisa checar **coerência entre os dois** — nenhuma linha
+onde `categoria_id` aponte para uma categoria cujo nome divirja do texto gravado. Sem
+isso, a denormalização apodrece em silêncio.
 
 ---
 
@@ -353,16 +473,31 @@ Pages funcionando.
 | Risco | Impacto | Mitigação |
 |---|---|---|
 | Renomear categorias sem atualizar as 520 regras | auto-classificação degrada; piora o objetivo (d) | migrar as duas na mesma transação; asserção em `verificacao.sql` |
-| Fase 3 sem backup no plano free | perda irreversível | export CSV obrigatório antes |
+| Texto e `categoria_id` divergirem com o tempo (consequência de cortar a Fase 3) | dado denormalizado apodrece em silêncio | trigger é o único caminho de escrita + asserção de coerência em `verificacao.sql` (§10) |
+| `UPDATE` de backfill mal escrito em 3.132 linhas | perda de dado em plano free sem PITR | export CSV de `transacoes` e `regras` antes da Fase 1 |
 | Cache servindo dado velho após o cron | decisão sobre número desatualizado | TTL + "atualizado há X min" + pull-to-refresh |
-| CDB pode não vir pelo Open Finance | fôlego continua dependendo de digitação | verificar (custa 1 de 8 chamadas caras) antes de prometer na tela |
+| ~~CDB pode não vir pelo Open Finance~~ | **confirmado em 06/08: não vem** | 2 das 3 linhas do patrimônio seguem manuais; alerta de 30 dias vira requisito (§7) |
 | 516 pendentes continuam exigindo julgamento humano | fila não zera sozinha | triagem otimizada para velocidade; "Mudar" ensina a regra |
-| Patrimônio parado desde 05/06 | fôlego de 1,8 meses pode estar errado | automatizar Itaú; alerta de 30 dias no manual |
+| A segunda fila (387) nunca ser tocada | 31% do gráfico continua opaco no histórico | aceito por decisão: sem contador e sem prazo. Análise declara a incerteza; o alvo de §1 não depende dela |
+| Patrimônio parado desde 05/06 | fôlego de 1,8 meses pode estar errado | conta corrente automatizada; alerta de 30 dias nas duas linhas manuais (57% do total) |
 
 ---
 
 ## 14. Próximo passo
 
-`/break` — quebrar esta spec em tarefas sequenciais e pequenas. A ordem provável começa
-pela **migração de dados** (caminho crítico, bloqueia Análise e Planejar) e pela camada
-compartilhada `assets/`, não pelas telas.
+Spec **aprovada em 06/08/2026**. Quebrar em tarefas pequenas e sequenciais, começando
+pela **migração de dados** — caminho crítico, bloqueia Análise e Planejar — e pela camada
+compartilhada `assets/`. **Não pelas telas:** tela sem taxonomia consolidada é retrabalho
+garantido.
+
+Ordem de ataque:
+
+1. Export CSV de `transacoes` e `regras` (§10)
+2. **Fase 1** — `categorias` + seed dos 9 grupos/~38 subs + `categoria_id` + backfill + `verificacao.sql`
+3. `assets/modelo.js` (grupos, rótulos, classes) e `assets/db.js` (leitura paginada + cache)
+4. **Fase 2** — trigger de resolução + front lendo por `categoria_id`
+5. Telas, na ordem: Triar → Início → Análise → Lançamentos → Mais/Planejar
+
+> **Nota de 06/08/2026:** a v1.0 apontava `/break` como próximo comando. Esse comando não
+> existe nesta instalação do Claude Code — o equivalente é o skill `blueprint` (plano de
+> construção passo a passo) ou `to-issues`.
