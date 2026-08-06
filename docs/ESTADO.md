@@ -7,10 +7,34 @@
 
 ## Em uma frase
 
-A [`spec.md`](spec.md) foi **revisada e aprovada** (v1.2) e o plano de construção está
-escrito em [`plans/redesign-financas.md`](../plans/redesign-financas.md) — 10 passos.
-Nada foi implementado ainda. O próximo passo é o **passo 1: export CSV**, e em seguida a
-**Fase 1 da migração**.
+Spec aprovada (v1.2), plano de construção escrito
+([`plans/redesign-financas.md`](../plans/redesign-financas.md), 10 passos) e os
+**passos 1 a 4 estão feitos**: a migração de dados foi aplicada e as 15 asserções do
+`verificacao.sql` passam. O próximo é o **passo 5, a camada `assets/`**.
+
+## Estado da migração (06/08/2026)
+
+| Passo | | |
+|---|---|---|
+| 1 | Export CSV de `transacoes` e `regras` | ✅ em `Pessoal\backups\2026-08-06\` (fora do repo) |
+| 2 | Tabela `categorias` + seed + RLS | ✅ **54 subs, 12 grupos** |
+| 3 | `categoria_id` + backfill nas duas tabelas | ✅ aplicado |
+| 4 | `sql/verificacao.sql` | ✅ **15/15 PASSOU** |
+| 5–10 | `assets/` e telas | pendente |
+
+**Números depois da migração:**
+
+| | |
+|---|---|
+| Transações | 3.132 · zero perdidas |
+| `Compras › Marketplace` | **355** (os antigos `Outros`) |
+| Fila de triagem | **656** — 620 sem categoria, 623 sem `cls`, união 656 |
+| Regras sem categoria | 27 (todas intencionais: `Indefinido`, `Internacional`, `Serviços`…) |
+| `cls` corrigidos para "Não é gasto" | 13 (12 `Desconto` + 1 `Estorno`) |
+
+⚠️ **A `main` do GitHub Pages ainda serve o app ANTIGO** — ele lê `categoria` como texto,
+que continua intacto, então nada quebrou para vocês. A Fase 2 (front lendo `categoria_id`)
+é o passo 6.
 
 ---
 
@@ -50,6 +74,24 @@ Isso **reverteu a decisão das duas filas**: elas existiam para proteger de uma 
 
 **Lição:** classificar direito a categoria mais volumosa vale mais que qualquer
 engenharia de interface em cima da bagunça.
+
+### ⚠️ Correção importante: NÃO consolidar regras por prefixo
+
+A ideia de fundir as ~128 regras de marketplace em 3 (`SHOPEE`, `AMAZON`,
+`MERCADOLIVRE`) chegou a ser aprovada — e estava **errada**. Ao implementar, medi as
+regras `SHOPEE*` inteiras, não só as que apontavam para `Outros`:
+
+| Prefixo | Regras | Categorias | `cls` distintos |
+|---|---|---|---|
+| **`SHOPEE`** | **119** | 6 | **5** — inclui **OQV, Rai Móveis, Slim Fit** |
+| `MERCADOPAGO` | 7 | 2 | 2 — inclui Rai Móveis |
+
+Uma regra `SHOPEE` genérica reclassificaria compras das empresas como gasto pessoal da
+família — **destruindo a separação PF/PJ** que a blindagem de RLS de 05/08 protegeu.
+
+**As regras por vendedor não são superajustadas: elas guardam qual vendedor pertence a
+qual negócio.** Só a categoria foi remapeada; todos os 520 padrões foram preservados.
+O erro de origem foi tirar conclusão de 132 regras sem olhar as outras 119.
 
 ### Outros achados da pesquisa
 
