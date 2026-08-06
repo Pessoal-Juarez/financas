@@ -65,7 +65,15 @@
     { id: 'mais', href: 'mais.html', rotulo: 'Mais', icone: '⋯' }
   ];
 
+  // IDEMPOTENTE por construção: chamar de novo SUBSTITUI a barra, não
+  // empilha outra. As telas chamam isto sempre que o contador de pendentes
+  // muda (classificar um lançamento mexe no número), e a versão que só
+  // acrescentava produzia duas barras sobrepostas — pego pela verificação
+  // em 06/08, quando a bateria rodou duas vezes na mesma página.
   function montarNav(ativo, pendentes) {
+    var antiga = document.querySelector('nav.nav');
+    if (antiga) antiga.parentNode.removeChild(antiga);
+
     var nav = document.createElement('nav');
     nav.className = 'nav';
     nav.setAttribute('aria-label', 'Navegação principal');
