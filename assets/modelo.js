@@ -410,6 +410,121 @@
   }
 
   /* ------------------------------------------------------------------
+     Projeção de parcelamento — 12 meses à frente
+     ------------------------------------------------------------------
+     Cada parcela cai no mês da sua fatura. Para saber o que AINDA vai
+     pesar, é preciso primeiro reconhecer que várias linhas são a MESMA
+     compra fatiada: a chave é (data da compra | descrição | valor | total
+     de parcelas). Sem essa deduplicação, uma compra em 12x apareceria 12
+     vezes e a projeção sairia multiplicada.
+
+     Lógica herdada do dashboard.html, para os dois apps darem o mesmo
+     número durante a transição. */
+  function projecaoParcelas(tx, mesesAFrente) {
+    var n = mesesAFrente || 12;
+    var compras = {};
+    tx.forEach(function (t) {
+      if (!/^\d+\/\d+$/.test(String(t.parcela || ''))) return;
+      var p = String(t.parcela).split('/');
+      var pp = Number(p[0]), tt = Number(p[1]);
+      if (!tt) return;
+      var chave = (t.data_compra || t.data) + '|' + (t.descricao || '') + '|' + t.valor + '|' + tt;
+      var m = ym(t.data);
+      if (!compras[chave] || pp > compras[chave].maxpp) {
+        compras[chave] = { tt: tt, valor: Math.abs(Number(t.valor) || 0), maxpp: pp,
+                           mes: m, descricao: t.descricao, cls: t.cls };
+      }
+    });
+
+    var base = mesesComDado(tx)[0] || ym(new Date().toISOString());
+    var p2 = base.split('-'), ano = Number(p2[0]), mes = Number(p2[1]);
+    var meses = [], fut = {};
+    for (var i = 0; i < n; i++) {
+      mes++; if (mes > 12) { mes = 1; ano++; }
+      var k = ano + '-' + (mes < 10 ? '0' : '') + mes;
+      meses.push(k); fut[k] = 0;
+    }
+
+    var abertas = [];
+    Object.keys(compras).forEach(function (c) {
+      var o = compras[c];
+      var restam = o.tt - o.maxpp;
+      if (restam <= 0) return;
+      abertas.push({ descricao: o.descricao, valor: o.valor, restam: restam,
+                     total: o.valor * restam, parcela: o.maxpp + '/' + o.tt, cls: o.cls });
+      var q = o.mes.split('-'), yy = Number(q[0]), mm = Number(q[1]);
+      for (var k2 = 1; k2 <= restam; k2++) {
+        mm++; if (mm > 12) { mm = 1; yy++; }
+        var kk = yy + '-' + (mm < 10 ? '0' : '') + mm;
+        if (kk in fut) fut[kk] += o.valor;
+      }
+    });
+    abertas.sort(function (a, b) { return b.total - a.total; });
+    return { meses: meses, fut: fut, abertas: abertas,
+             total: abertas.reduce(function (a, o) { return a + o.total; }, 0) };
+  }
+
+  /* ------------------------------------------------------------------
+     Empréstimos — "quem me deve"
+     ------------------------------------------------------------------
+     `cls = 'Empréstimo'` e `categoria` = nome da pessoa. Saída = você
+     emprestou; entrada = ela pagou. Empréstimo NÃO vira regra automática:
+     o nome muda a cada caso. */
+  // Categorias que são marcador de pendência, não nome de pessoa. Exibi-las
+  // como se fossem gente ("Indefinido te deve R$ 300") seria absurdo — o
+  // certo é dizer que falta triar.
+  var SEM_NOME = ['Indefinido', 'Outros', 'Serviços', 'Clínica?',
+                  'Receita a identificar', 'Locação (não confirmado)',
+                  'Despesa OQV', 'Loja esposa', 'Cartão (fatura não detalhada)'];
+
+  function nomeDoDevedor(categoria) {
+    var c = String(categoria || '').trim();
+    if (!c || SEM_NOME.indexOf(c) !== -1) return null;
+    return c;
+  }
+
+  /* ⚠️ Agrupa pela categoria CRUA, nunca por "sem nome".
+     A primeira versão juntava todos os sem-nome numa linha só, e duas
+     dívidas distintas se anulavam: R$ 300 em aberto de um placeholder mais
+     um pagamento de outro apareciam como "quitado ✓". Compensação entre
+     devedores diferentes é conclusão falsa — pior que um rótulo feio. */
+  function emprestimos(tx) {
+    var por = {};
+    tx.filter(function (t) { return t.cls === 'Empréstimo'; }).forEach(function (t) {
+      var p = String(t.categoria || '').trim() || '(sem categoria)';
+      if (!por[p]) por[p] = { pessoa: p, emprestado: 0, pago: 0, itens: [] };
+      if (ehSaida(t)) por[p].emprestado += Number(t.valor) || 0;
+      else por[p].pago += Number(t.valor) || 0;
+      por[p].itens.push(t);
+    });
+    return Object.keys(por).map(function (k) {
+      var o = por[k];
+      o.semNome = !nomeDoDevedor(k);
+      if (o.semNome) { o.marcador = k; o.pessoa = 'Sem nome ainda'; }
+      o.falta = o.emprestado - o.pago;
+      o.quitado = o.falta <= 0.01;
+      o.pct = o.emprestado > 0 ? Math.min(o.pago / o.emprestado * 100, 100) : 0;
+      return o;
+    }).sort(function (a, b) { return b.falta - a.falta; });
+  }
+
+  /* ------------------------------------------------------------------
+     "As empresas se pagam?"
+     ------------------------------------------------------------------
+     Por classificação de empresa: quanto entrou contra quanto saiu.
+     Cobertura abaixo de 100% significa que a família está bancando. */
+  function saldoDasEmpresas(tx) {
+    return EMPRESAS.map(function (b) {
+      var linhas = tx.filter(function (t) { return t.cls === b; });
+      var receita = somar(linhas, function (t) { return !ehSaida(t); });
+      var gasto = somar(linhas, ehSaida);
+      return { empresa: b, receita: receita, gasto: gasto, saldo: receita - gasto,
+               cobertura: gasto > 0 ? receita / gasto * 100 : (receita > 0 ? 100 : 0),
+               lancamentos: linhas.length };
+    }).filter(function (o) { return o.lancamentos > 0; });
+  }
+
+  /* ------------------------------------------------------------------
      Datas
      ------------------------------------------------------------------ */
   var MES_CURTO = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun',
@@ -464,6 +579,8 @@
     mesesAnteriores: mesesAnteriores, mesesComDado: mesesComDado, porMes: porMes,
     TRAVAS: TRAVAS, despesaFamiliar: despesaFamiliar,
     gruposAcimaDoNormal: gruposAcimaDoNormal, parcelasAVencer: parcelasAVencer,
-    assinaturas: assinaturas, assinaturasNovas: assinaturasNovas
+    assinaturas: assinaturas, assinaturasNovas: assinaturasNovas,
+    projecaoParcelas: projecaoParcelas, emprestimos: emprestimos,
+    saldoDasEmpresas: saldoDasEmpresas
   };
 })(window);

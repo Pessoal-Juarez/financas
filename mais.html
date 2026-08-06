@@ -49,11 +49,15 @@ const $ = UI.$;
 function itens(gestor) {
   const lista = [];
   if (gestor) lista.push({ href: 'planejar.html', ic: '◱', t: 'Planejar',
-    s: 'Orçamento, patrimônio e fôlego' });
+    s: 'Orçamento, metas, patrimônio e fôlego' });
+  lista.push({ href: 'empresas.html', ic: '◈', t: 'Empresas',
+    s: 'Elas se pagam? Despesas e receitas de cada uma' });
+  lista.push({ href: 'parcelamento.html', ic: '▤', t: 'Parcelamento',
+    s: 'O que já está comprometido nos próximos 12 meses' });
+  lista.push({ href: 'emprestimos.html', ic: '⇄', t: 'Quem me deve',
+    s: 'Empréstimos e quanto já voltou' });
   lista.push({ href: 'categorias.html', ic: '⁝⁝', t: 'Categorias',
     s: 'Criar, renomear e arquivar' });
-  if (gestor) lista.push({ href: 'oqv.html', ic: '◈', t: 'OQV',
-    s: 'Contas da empresa' });
   return lista;
 }
 

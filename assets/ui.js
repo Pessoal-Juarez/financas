@@ -170,6 +170,84 @@
   }
 
   /* ------------------------------------------------------------------
+     Barras com linha de tendência
+     ------------------------------------------------------------------
+     SVG puro, sem Chart.js — dependência de CDN quebraria o app offline.
+
+     A tendência é uma REGRESSÃO LINEAR (mínimos quadrados) sobre a série,
+     não a ligação entre o primeiro e o último ponto: dois meses atípicos
+     nas pontas inclinariam a reta para qualquer lado e ela mentiria com
+     ar de rigor.
+
+     `pontos` = [{ rotulo, valor, destaque? }] */
+  function barrasComTendencia(pontos, opcoes) {
+    var o = opcoes || {};
+    var L = 300, A = 120, base = A - 18, topoY = 8;
+    var max = Math.max.apply(null, pontos.map(function (p) { return p.valor; }).concat([1]));
+    var larg = L / (pontos.length || 1);
+    var corBar = o.cor || 'var(--acento)';
+
+    var barras = pontos.map(function (p, i) {
+      var h = Math.max(1, (p.valor / max) * (base - topoY));
+      var x = i * larg + larg * 0.18, w = larg * 0.64;
+      return '<rect x="' + x.toFixed(1) + '" y="' + (base - h).toFixed(1) + '" width="' + w.toFixed(1) +
+        '" height="' + h.toFixed(1) + '" rx="2" fill="' + (p.destaque ? 'var(--badge-fg)' : corBar) +
+        '"><title>' + escapar(p.rotulo) + ': ' + BRL(p.valor) + '</title></rect>';
+    }).join('');
+
+    // Mínimos quadrados: y = a + b·x
+    var n = pontos.length, linha = '';
+    if (n >= 3) {
+      var sx = 0, sy = 0, sxy = 0, sxx = 0;
+      pontos.forEach(function (p, i) { sx += i; sy += p.valor; sxy += i * p.valor; sxx += i * i; });
+      var den = n * sxx - sx * sx;
+      if (den !== 0) {
+        var b = (n * sxy - sx * sy) / den;
+        var a = (sy - b * sx) / n;
+        var yDe = a, yAte = a + b * (n - 1);
+        var py = function (v) {
+          var vv = Math.max(0, Math.min(max, v));
+          return (base - (vv / max) * (base - topoY)).toFixed(1);
+        };
+        linha = '<line x1="' + (larg * 0.5).toFixed(1) + '" y1="' + py(yDe) +
+          '" x2="' + (L - larg * 0.5).toFixed(1) + '" y2="' + py(yAte) +
+          '" stroke="var(--perigo)" stroke-width="2" stroke-dasharray="5 4" ' +
+          'stroke-linecap="round" opacity=".85"></line>';
+        o.inclinacao = b;
+      }
+    }
+
+    var rotulos = pontos.map(function (p, i) {
+      return '<text x="' + (i * larg + larg / 2).toFixed(1) + '" y="' + (A - 4) +
+        '" text-anchor="middle" font-size="9" fill="var(--muted)">' +
+        escapar(String(p.rotulo).slice(0, 3)) + '</text>';
+    }).join('');
+
+    return '<svg viewBox="0 0 ' + L + ' ' + A + '" width="100%" height="' + A +
+      '" role="img" aria-label="' + escapar(o.titulo || 'Gráfico de barras') +
+      '">' + barras + linha + rotulos + '</svg>';
+  }
+
+  // Texto que traduz a inclinação da tendência. Uma reta pontilhada sem
+  // legenda é enfeite; com a leitura em palavras, vira informação.
+  function leituraDaTendencia(pontos) {
+    if (!pontos || pontos.length < 3) return '';
+    var n = pontos.length, sx = 0, sy = 0, sxy = 0, sxx = 0;
+    pontos.forEach(function (p, i) { sx += i; sy += p.valor; sxy += i * p.valor; sxx += i * i; });
+    var den = n * sxx - sx * sx;
+    if (!den) return '';
+    var b = (n * sxy - sx * sy) / den;
+    // Denominador em valor absoluto: numa série negativa (o resultado das
+    // empresas, por exemplo) dividir pela média com sinal invertia a leitura.
+    var media = Math.abs(sy / n);
+    if (!media) return '';
+    var pctMes = (b / media) * 100;
+    if (Math.abs(pctMes) < 2) return 'Tendência estável no período.';
+    return 'Tendência de ' + (b > 0 ? 'alta' : 'queda') + ' de ' +
+      BRL(Math.abs(b)) + ' por mês (' + Math.abs(pctMes).toFixed(0) + '% da média).';
+  }
+
+  /* ------------------------------------------------------------------
      Guarda de sessão — toda tela começa por aqui
      ------------------------------------------------------------------ */
   async function exigirSessao() {
@@ -190,7 +268,8 @@
     montarNav: montarNav, toast: toast,
     esqueleto: esqueleto, vazio: vazio, erro: erro,
     marcarFrescor: marcarFrescor, puxarParaAtualizar: puxarParaAtualizar,
-    exigirSessao: exigirSessao
+    exigirSessao: exigirSessao,
+    barrasComTendencia: barrasComTendencia, leituraDaTendencia: leituraDaTendencia
   };
 
   aplicarPrivado();

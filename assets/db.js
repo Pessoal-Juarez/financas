@@ -222,6 +222,41 @@
     return comCache('metas', function () { return lerTudo('metas'); }, forcar);
   }
 
+  function config(forcar) {
+    return comCache('config', function () { return lerTudo('config'); }, forcar);
+  }
+
+  async function salvarConfig(chave, valor) {
+    var r = await sb.from('config').upsert(
+      { chave: chave, valor: valor, atualizado_em: new Date().toISOString() },
+      { onConflict: 'chave' });
+    if (r.error) return { erro: r.error.message };
+    invalidar('config');
+    return { ok: true };
+  }
+
+  function logAlteracoes(forcar) {
+    return comCache('log', function () {
+      return lerTudo('log_alteracoes', [['id', false]]);
+    }, forcar);
+  }
+
+  function perguntas(forcar) {
+    return comCache('perg', function () {
+      return lerTudo('perguntas', [['id', false]]);
+    }, forcar);
+  }
+
+  // O Assistente não fala com a VPS: enfileira a pergunta e o cron de 2 em 2
+  // minutos responde. É esse desacoplamento que permite o front ser HTML
+  // estático sem servidor.
+  async function perguntar(texto) {
+    var r = await sb.from('perguntas').insert({ pergunta: texto }).select().maybeSingle();
+    if (r.error) return { erro: r.error.message };
+    invalidar('perg');
+    return { ok: true, id: r.data && r.data.id };
+  }
+
   /* Orçamento por GRUPO. `metas.categoria` é a PRIMARY KEY e não pôde ser
      alterada — o dashboard.html antigo lê e ordena por ela. As duas colunas
      guardam o mesmo texto: `grupo` diz o significado, `categoria` mantém a
@@ -293,6 +328,8 @@
     classificar: classificar, ensinarRegra: ensinarRegra,
     aplicarLote: aplicarLote, criarCategoria: criarCategoria,
     metas: metas, salvarMeta: salvarMeta, apagarMeta: apagarMeta,
+    config: config, salvarConfig: salvarConfig,
+    logAlteracoes: logAlteracoes, perguntas: perguntas, perguntar: perguntar,
     salvarPatrimonio: salvarPatrimonio,
     arquivarCategoria: arquivarCategoria, renomearCategoria: renomearCategoria,
     invalidar: invalidar, idadeDoCache: idadeDoCache
