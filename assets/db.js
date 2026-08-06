@@ -218,6 +218,61 @@
     return { ok: ok, falhas: falhas };
   }
 
+  function metas(forcar) {
+    return comCache('metas', function () { return lerTudo('metas'); }, forcar);
+  }
+
+  /* Orçamento por GRUPO. `metas.categoria` é a PRIMARY KEY e não pôde ser
+     alterada — o dashboard.html antigo lê e ordena por ela. As duas colunas
+     guardam o mesmo texto: `grupo` diz o significado, `categoria` mantém a
+     chave e o app antigo funcionando. Redundância transitória, deliberada. */
+  async function salvarMeta(grupo, valorMes) {
+    var r = await sb.from('metas').upsert(
+      { categoria: grupo, grupo: grupo, valor_mes: valorMes,
+        atualizado_em: new Date().toISOString() },
+      { onConflict: 'categoria' });
+    if (r.error) return { erro: r.error.message };
+    invalidar('metas');
+    return { ok: true };
+  }
+
+  async function apagarMeta(grupo) {
+    var r = await sb.from('metas').delete().eq('categoria', grupo);
+    if (r.error) return { erro: r.error.message };
+    invalidar('metas');
+    return { ok: true };
+  }
+
+  // Só as linhas `fonte='manual'` fazem sentido editar aqui: a conta
+  // corrente é sobrescrita pelo sync diário e o que for digitado sumiria
+  // na manhã seguinte, sem aviso.
+  async function salvarPatrimonio(id, valor) {
+    var r = await sb.from('patrimonio')
+      .update({ valor: valor, atualizado_em: new Date().toISOString() })
+      .eq('id', id).eq('fonte', 'manual');
+    if (r.error) return { erro: r.error.message };
+    invalidar('patr');
+    return { ok: true };
+  }
+
+  // Arquivar subcategoria em uso move os lançamentos E arquiva, numa
+  // transação só. É o único ponto do app onde falha no meio corrompe dado,
+  // por isso vive no banco como função e não como duas chamadas daqui.
+  async function arquivarCategoria(idOrigem, idDestino) {
+    var r = await sb.rpc('arquivar_categoria', {
+      p_categoria_id: idOrigem, p_destino_id: idDestino });
+    if (r.error) return { erro: r.error.message };
+    invalidar('cat'); invalidar('tx'); invalidar('regras');
+    return { ok: true, resultado: r.data };
+  }
+
+  async function renomearCategoria(id, nome) {
+    var r = await sb.from('categorias').update({ nome: nome }).eq('id', id);
+    if (r.error) return { erro: r.error.message };
+    invalidar('cat'); invalidar('tx');
+    return { ok: true };
+  }
+
   async function criarCategoria(grupo, nome, ordem) {
     var r = await sb.from('categorias')
       .insert({ grupo: grupo, nome: nome, ordem: ordem || 0 }).select().maybeSingle();
@@ -237,6 +292,9 @@
     patrimonio: patrimonio, tudo: tudo, lerTudo: lerTudo,
     classificar: classificar, ensinarRegra: ensinarRegra,
     aplicarLote: aplicarLote, criarCategoria: criarCategoria,
+    metas: metas, salvarMeta: salvarMeta, apagarMeta: apagarMeta,
+    salvarPatrimonio: salvarPatrimonio,
+    arquivarCategoria: arquivarCategoria, renomearCategoria: renomearCategoria,
     invalidar: invalidar, idadeDoCache: idadeDoCache
   };
 })(window);

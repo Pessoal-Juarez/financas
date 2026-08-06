@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="system">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Lançamentos · Finanças da Família</title>
+<meta name="theme-color" content="#2f6df0">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Finanças">
+<link rel="stylesheet" href="assets/app.css">
+<style>
+  .filtros { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .filtros .busca { grid-column:1 / -1; }
+  .filtros input, .filtros select { width:100%; }
+  .lin { display:flex; gap:10px; align-items:flex-start; padding:11px 0;
+         border-bottom:1px solid var(--border2); }
+  .lin:last-child { border-bottom:0; }
+  .lin .txt { flex:1; min-width:0; }
+  .lin .d { font-size:.9375rem; word-break:break-word; }
+  .lin .s { color:var(--muted); font-size:.8125rem; margin-top:2px; }
+  .lin .v { text-align:right; white-space:nowrap; }
+  .etiq { display:inline-block; font-size:.75rem; padding:1px 7px; border-radius:20px;
+          background:var(--border2); color:var(--muted); }
+  .etiq.pend { background:var(--badge-bg); color:var(--badge-fg); font-weight:600; }
+  .resumo { display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
+  .mais { text-align:center; margin-top:12px; }
+</style>
+</head>
+<body>
+
+<div class="cabecalho">
+  <h1 class="titulo">Lançamentos</h1>
+  <span class="frescor" id="frescor"></span>
+</div>
+
+<div class="envolucro" id="tela">
+  <div class="cartao"><div class="esqueleto"><div class="esq-linha"><div class="esq"></div></div></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/modelo.js"></script>
+<script src="assets/db.js"></script>
+<script src="assets/ui.js"></script>
+<script>
+'use strict';
+const $ = UI.$;
+
+/* PAGE = 200 é a armadilha nº 3 do projeto, não uma preferência.
+   A tabela antiga renderizava 3.011 linhas de uma vez — cerca de 50 mil
+   nós de DOM, remontados a cada tecla digitada — e o celular travava.
+   Os TOTAIS não dependem disso: são calculados sobre o filtro inteiro,
+   não sobre o que foi desenhado. */
+const PAGE = 200;
+
+let TX = [], CATS = [], mostrando = PAGE;
+let f = { q: '', mes: '', cls: '', grupo: '', tipo: 'saida' };
+let debounce = null;
+
+function cat(id) { return CATS.find(c => c.id === id) || null; }
+function grupoDe(t) { const c = cat(t.categoria_id); return c ? c.grupo : null; }
+
+function filtrado() {
+  const q = f.q.trim().toLowerCase();
+  return TX.filter(t => {
+    if (f.tipo && (t.tipo || 'saida') !== f.tipo) return false;
+    if (f.mes && M.ym(t.data) !== f.mes) return false;
+    if (f.cls === '__pend' ? !M.precisaTriagem(t) : (f.cls && t.cls !== f.cls)) return false;
+    if (f.grupo && grupoDe(t) !== f.grupo) return false;
+    if (q && String(t.descricao || '').toLowerCase().indexOf(q) === -1) return false;
+    return true;
+  });
+}
+
+function desenhar(resetPagina) {
+  if (resetPagina) mostrando = PAGE;
+  const pendentes = TX.filter(M.precisaTriagem).length;
+  UI.montarNav('lancamentos', pendentes);
+  UI.marcarFrescor($('frescor'), 'tx');
+
+  const todos = filtrado();
+  const total = M.somar(todos);
+  const linhas = todos.slice(0, mostrando);
+  const meses = M.mesesComDado(TX);
+  const grupos = [];
+  CATS.forEach(c => { if (grupos.indexOf(c.grupo) === -1) grupos.push(c.grupo); });
+
+  $('tela').innerHTML =
+    '<div class="cartao">' +
+      '<div class="filtros">' +
+        '<div class="busca"><input id="fq" type="search" placeholder="Buscar na descrição" ' +
+          'value="' + UI.escapar(f.q) + '" autocomplete="off"></div>' +
+        '<select id="ftipo">' +
+          '<option value="saida"' + (f.tipo === 'saida' ? ' selected' : '') + '>Saídas</option>' +
+          '<option value="entrada"' + (f.tipo === 'entrada' ? ' selected' : '') + '>Entradas</option>' +
+          '<option value=""' + (f.tipo === '' ? ' selected' : '') + '>Tudo</option>' +
+        '</select>' +
+        '<select id="fmes"><option value="">Todos os meses</option>' +
+          meses.map(m => '<option value="' + m + '"' + (f.mes === m ? ' selected' : '') + '>' +
+            M.rotuloMes(m) + '</option>').join('') + '</select>' +
+        '<select id="fcls"><option value="">Toda classificação</option>' +
+          '<option value="__pend"' + (f.cls === '__pend' ? ' selected' : '') + '>Só o que falta triar</option>' +
+          M.CLS.map(c => '<option value="' + UI.escapar(c) + '"' + (f.cls === c ? ' selected' : '') + '>' +
+            UI.escapar(M.rotulo(c)) + '</option>').join('') + '</select>' +
+        '<select id="fgrupo"><option value="">Todo grupo</option>' +
+          grupos.map(g => '<option value="' + UI.escapar(g) + '"' + (f.grupo === g ? ' selected' : '') + '>' +
+            UI.escapar(g) + '</option>').join('') + '</select>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="cartao">' +
+      '<div class="resumo">' +
+        '<span class="mudo">' + todos.length + ' lançamento' + (todos.length === 1 ? '' : 's') + '</span>' +
+        '<b class="valor">' + UI.BRL(total) + '</b>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="cartao">' +
+      (linhas.length
+        ? linhas.map(t => {
+            const c = cat(t.categoria_id);
+            const pend = M.precisaTriagem(t);
+            return '<div class="lin">' +
+              '<span class="txt">' +
+                '<span class="d">' + UI.escapar(t.descricao) + '</span>' +
+                '<span class="s">' + UI.escapar(t.data) + ' · ' + UI.escapar(t.src || '') +
+                  (t.parcela ? ' · ' + UI.escapar(t.parcela) : '') + '<br>' +
+                  '<span class="etiq' + (pend ? ' pend' : '') + '">' +
+                    (pend ? M.motivoTriagem(t) : (c ? c.grupo + ' › ' + c.nome : '—')) +
+                  '</span> ' +
+                  '<span class="etiq" style="color:' + M.cor(t.cls) + '">' +
+                    UI.escapar(M.rotulo(t.cls)) + '</span>' +
+                '</span>' +
+              '</span>' +
+              '<span class="v valor">' + UI.BRL(t.valor) + '</span>' +
+            '</div>';
+          }).join('')
+        : '<p class="mudo" style="margin:0">Nenhum lançamento com esses filtros.</p>') +
+
+      (todos.length > linhas.length
+        ? '<div class="mais"><button class="btn alt" id="btnMais">Mostrar mais ' +
+          Math.min(PAGE, todos.length - linhas.length) + '</button>' +
+          '<p class="mudo" style="font-size:.8125rem;margin:8px 0 0">Mostrando ' +
+          linhas.length + ' de ' + todos.length + ' — o total acima considera todos.</p></div>'
+        : '') +
+    '</div>';
+
+  // Busca com debounce: sem ele, cada tecla remontaria a lista inteira.
+  $('fq').oninput = e => {
+    f.q = e.target.value;
+    clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      const pos = document.activeElement === $('fq');
+      desenhar(true);
+      if (pos) { const el = $('fq'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    }, 220);
+  };
+  $('ftipo').onchange = e => { f.tipo = e.target.value; desenhar(true); };
+  $('fmes').onchange = e => { f.mes = e.target.value; desenhar(true); };
+  $('fcls').onchange = e => { f.cls = e.target.value; desenhar(true); };
+  $('fgrupo').onchange = e => { f.grupo = e.target.value; desenhar(true); };
+  if ($('btnMais')) $('btnMais').onclick = () => { mostrando += PAGE; desenhar(false); };
+}
+
+async function carregar(forcar) {
+  try {
+    const d = await DB.tudo(forcar);
+    TX = d.tx; CATS = d.categorias;
+    desenhar(true);
+  } catch (e) {
+    UI.erro($('tela'), e.message, () => carregar(true));
+    UI.montarNav('lancamentos', 0);
+  }
+}
+
+(async function () {
+  const perfil = await UI.exigirSessao();
+  if (!perfil) return;
+  UI.puxarParaAtualizar(() => carregar(true));
+  await carregar(false);
+})();
+</script>
+</body>
+</html>

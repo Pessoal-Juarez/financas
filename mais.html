@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="system">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Mais · Finanças da Família</title>
+<meta name="theme-color" content="#2f6df0">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Finanças">
+<link rel="stylesheet" href="assets/app.css">
+<style>
+  .item { display:flex; align-items:center; gap:12px; padding:14px 0; min-height:var(--alvo);
+          border-bottom:1px solid var(--border2); text-decoration:none; color:inherit;
+          width:100%; background:none; border-left:0; border-right:0; border-top:0;
+          font:inherit; text-align:left; cursor:pointer; }
+  .item:last-child { border-bottom:0; }
+  .item .ic { font-size:1.25rem; width:26px; text-align:center; }
+  .item .tx { flex:1; min-width:0; }
+  .item .tx b { display:block; }
+  .item .tx span { color:var(--muted); font-size:.8125rem; }
+  .item .seta { color:var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="cabecalho">
+  <h1 class="titulo">Mais</h1>
+  <span class="frescor" id="quem"></span>
+</div>
+
+<div class="envolucro" id="tela">
+  <div class="cartao"><div class="esqueleto"><div class="esq-linha"><div class="esq"></div></div></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/modelo.js"></script>
+<script src="assets/db.js"></script>
+<script src="assets/ui.js"></script>
+<script>
+'use strict';
+const $ = UI.$;
+
+/* A barra inferior é IGUAL para os dois papéis (spec §3). O que varia por
+   papel é a lista aqui dentro — Planejar e OQV só existem para o gestor.
+   Esconder aqui é conveniência; a proteção de verdade é o RLS, que já
+   barra `patrimonio` e as linhas de OQV/PJ no banco. */
+function itens(gestor) {
+  const lista = [];
+  if (gestor) lista.push({ href: 'planejar.html', ic: '◱', t: 'Planejar',
+    s: 'Orçamento, patrimônio e fôlego' });
+  lista.push({ href: 'categorias.html', ic: '⁝⁝', t: 'Categorias',
+    s: 'Criar, renomear e arquivar' });
+  if (gestor) lista.push({ href: 'oqv.html', ic: '◈', t: 'OQV',
+    s: 'Contas da empresa' });
+  return lista;
+}
+
+function desenhar(perfil, pendentes) {
+  const gestor = DB.ehGestor();
+  $('quem').textContent = perfil.nome + ' · ' + (gestor ? 'Gestor' : 'Colaboradora');
+  UI.montarNav('mais', pendentes);
+
+  $('tela').innerHTML =
+    '<div class="cartao">' +
+      itens(gestor).map(i =>
+        '<a class="item" href="' + i.href + '">' +
+          '<span class="ic" aria-hidden="true">' + i.ic + '</span>' +
+          '<span class="tx"><b>' + i.t + '</b><span>' + i.s + '</span></span>' +
+          '<span class="seta" aria-hidden="true">›</span>' +
+        '</a>').join('') +
+    '</div>' +
+
+    '<div class="cartao">' +
+      '<button class="item" id="btnOlho">' +
+        '<span class="ic" aria-hidden="true">◉</span>' +
+        '<span class="tx"><b>Esconder valores</b><span id="olhoEstado"></span></span>' +
+      '</button>' +
+      '<button class="item" id="btnTema">' +
+        '<span class="ic" aria-hidden="true">◐</span>' +
+        '<span class="tx"><b>Tema</b><span id="temaEstado"></span></span>' +
+      '</button>' +
+      '<button class="item" id="btnAtualizar">' +
+        '<span class="ic" aria-hidden="true">⟳</span>' +
+        '<span class="tx"><b>Recarregar dados</b><span>Descarta o cache e lê tudo de novo</span></span>' +
+      '</button>' +
+    '</div>' +
+
+    '<div class="cartao">' +
+      '<button class="item" id="btnSair">' +
+        '<span class="ic" aria-hidden="true">⏻</span>' +
+        '<span class="tx"><b>Sair</b><span>' + UI.escapar(perfil.email || '') + '</span></span>' +
+      '</button>' +
+    '</div>';
+
+  pintarPreferencias();
+
+  $('btnOlho').onclick = () => { UI.alternarPrivado(); pintarPreferencias(); };
+  $('btnTema').onclick = () => {
+    const ordem = ['system', 'light', 'dark'];
+    const atual = document.documentElement.getAttribute('data-theme') || 'system';
+    const prox = ordem[(ordem.indexOf(atual) + 1) % ordem.length];
+    document.documentElement.setAttribute('data-theme', prox);
+    try { localStorage.setItem('fin.tema', prox); } catch (e) {}
+    pintarPreferencias();
+  };
+  $('btnAtualizar').onclick = async () => {
+    DB.invalidar();
+    UI.toast('Cache descartado. Puxando de novo…');
+    await DB.tudo(true);
+    UI.toast('Pronto');
+  };
+  $('btnSair').onclick = async () => { await DB.sair(); location.replace('index.html'); };
+}
+
+function pintarPreferencias() {
+  const tema = document.documentElement.getAttribute('data-theme') || 'system';
+  $('temaEstado').textContent =
+    tema === 'system' ? 'Acompanha o sistema' : (tema === 'light' ? 'Claro' : 'Escuro');
+  $('olhoEstado').textContent = UI.privado() ? 'Ligado — valores borrados' : 'Desligado';
+}
+
+(async function () {
+  // Tema escolhido tem que valer ANTES de desenhar, senão a tela pisca.
+  try {
+    const t = localStorage.getItem('fin.tema');
+    if (t) document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+
+  const perfil = await UI.exigirSessao();
+  if (!perfil) return;
+  let pendentes = 0;
+  try { pendentes = (await DB.transacoes()).filter(M.precisaTriagem).length; } catch (e) {}
+  desenhar(perfil, pendentes);
+})();
+</script>
+</body>
+</html>

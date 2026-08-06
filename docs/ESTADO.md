@@ -25,7 +25,60 @@ Spec aprovada (v1.2), plano de construção escrito
 | 7 | **Tela Triar** | ✅ na branch `redesign` · verificada no navegador com sessão real |
 | 8 | **Tela Início** | ✅ na branch `redesign` · anomalias conferidas contra SQL |
 | 9 | **Tela Análise** | ✅ na branch `redesign` · total confere com SQL |
-| 10 | Lançamentos, Mais, Planejar, Categorias | pendente |
+| 10 | **Lançamentos, Mais, Planejar, Categorias** | ✅ na branch `redesign` |
+
+**As 10 etapas do plano estão feitas.** Falta a virada de chave — ver "O que falta" abaixo.
+
+**Passo 10.** Quatro telas mais três mudanças de banco
+(`sql/2026-08-06_metas-patrimonio-categorias.sql`):
+
+- **Lançamentos** — busca com debounce, filtros (tipo, mês, classificação, grupo, "só o
+  que falta triar"), corte em **200 linhas** com o aviso de que **o total considera
+  todas**. O corte é a armadilha nº 3 do projeto, não preferência: 3.011 linhas de uma vez
+  são ~50 mil nós de DOM e o celular trava.
+- **Mais** — hub. Planejar e OQV só aparecem para o gestor; a barra inferior continua
+  idêntica para os dois papéis.
+- **Planejar** — abre no **estado de primeira vez** (`metas` tem 0 linhas desde sempre),
+  com "Sugerir meu orçamento" a partir da média de 3 meses: **R$ 7.081,02**. Patrimônio
+  com CDB e BTG editáveis e a conta corrente **somente-leitura** — ela é sobrescrita pelo
+  sync diário, e o que fosse digitado sumiria na manhã seguinte sem aviso.
+- **Categorias** — criar (ambos), renomear e arquivar (só gestor).
+
+### `metas.categoria` é PRIMARY KEY
+
+A spec pedia `metas` recriada com grupo como chave. Não deu: `categoria` é a PK e o
+`dashboard.html` **que está no ar** lê e ordena por ela. `drop not null` foi recusado pelo
+Postgres (42P16), e trocar a PK quebraria produção. Solução: as duas colunas guardam o
+mesmo texto — `grupo` diz o significado, `categoria` mantém a chave e o app antigo vivo.
+Redundância transitória e deliberada.
+
+### Arquivar categoria é atômico de verdade
+
+É o único ponto do app onde falha no meio corrompe dado: mover os lançamentos **e**
+arquivar têm que acontecer juntos. Virou a função `arquivar_categoria(origem, destino)` no
+banco, chamada por RPC. Testado com categoria descartável: move, arquiva, e recusa destino
+igual à origem. Em caso de erro **o diálogo não fecha** — fechar daria impressão de
+sucesso parcial, que é justamente o que não existe aqui.
+
+---
+
+## O que falta — a virada de chave
+
+**O app novo ainda não está no ar, e isso é deliberado.** Tudo vive na branch `redesign`;
+a `main` continua servindo o `index.html` antigo, que lê `categoria` como texto (mantido
+em sincronia pelo trigger). Ninguém foi interrompido.
+
+Para virar, três decisões que são suas:
+
+1. **`index.html` vira porta de entrada** — login e redirecionamento para `inicio.html`.
+   ⚠️ O `start_url` do manifest é `"."`, então a raiz **tem** que continuar respondendo;
+   mudar isso quebra os PWAs já instalados nos celulares.
+2. **O que fazer com `dashboard.html`, a aba Assistente e a aba Alterações.** Não estão no
+   escopo das 8 telas da spec e continuam só no app antigo.
+3. **Merge de `redesign` na `main`** — é o deploy. O GitHub Pages republica em ~1 min.
+
+Sugestão: usar as telas novas por alguns dias servindo local (`python -m http.server 8777`
+com a branch `redesign` ativa) antes de virar.
 
 **Passo 9 — Análise.** Rosca por grupo em **SVG puro, sem Chart.js**: dependência de CDN
 quebraria o app offline, e as fontes foram auto-hospedadas justamente para isso. Janela de
