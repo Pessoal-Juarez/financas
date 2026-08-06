@@ -1,5 +1,21 @@
 # Plano de construção — redesign do app Finanças da Família
 
+> ## Situação em 06/08/2026, fim do dia
+>
+> **Os 10 passos deste plano estão CONCLUÍDOS.** Depois deles, o teste do Juarez revelou
+> que a spec havia **dropado 7 seções que já funcionavam** no app antigo, sem declarar —
+> o plano foi estendido com duas fases novas.
+>
+> | Fase | O quê | Estado |
+> |---|---|---|
+> | 1–10 | migração de dados + camada `assets/` + 5 telas | ✅ |
+> | **A** | paridade: Empresas, Parcelamento, Quem me deve, Receitas, Assistente, Alterações, piso de sobrevivência, linhas de tendência | ✅ |
+> | **B** | anexo de fatura (PDF/imagem) · motor de regras condição+ação · contas a receber | ⬜ |
+> | — | **virada de chave** (`index.html`, `dashboard.html`, merge na `main`) | ⬜ decisão do Juarez |
+>
+> **O estado atual e as pendências vivem em [`docs/ESTADO.md`](../docs/ESTADO.md)** — é o
+> arquivo a ler primeiro. Este plano fica como registro de como se chegou aqui.
+
 **Criado:** 06/08/2026 · **Fonte:** [`docs/spec.md`](../docs/spec.md) v1.1 (aprovada)
 **Repo:** `Pessoal-Juarez/financas` · **Pasta:** `C:\Users\Samsung\Documents\Claude\Projects\Pessoal\financas`
 

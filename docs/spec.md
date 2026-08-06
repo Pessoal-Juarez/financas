@@ -88,6 +88,25 @@ Qualquer funcionalidade que dependa do balde caro precisa justificar o consumo.
 
 ## 3. Telas
 
+> ### ⚠️ Correção de escopo — 06/08/2026, depois do teste do Juarez
+>
+> **Esta seção estava incompleta e a spec não declarou isso.** Ao testar o app novo, o
+> Juarez sentiu falta de sete coisas — e todas **já funcionavam** no app antigo:
+> Receitas, Assistente, Alterações, análise das empresas, controle de parcelamento,
+> "quem me deve" e "as empresas se pagam?". Somando o que ele não citou mas também
+> sumira (piso de sobrevivência, patrimônio em movimento, cartão pago por mês), a spec
+> tinha reduzido **12 seções do app antigo para 5**.
+>
+> A causa: a spec foi escrita focada no problema da triagem — que era real e continua
+> sendo o mais importante — e tratou o resto como se não existisse, em vez de listar e
+> decidir conscientemente o que ficava de fora.
+>
+> As telas abaixo passaram de 8 para **13**. A lista completa e atual está em
+> [`ESTADO.md`](ESTADO.md); esta seção fica como registro do desenho original.
+>
+> **Lição para a próxima spec:** inventariar o que existe **antes** de desenhar o que vai
+> existir. Escopo que encolhe sem ser declarado não é simplificação, é dívida escondida.
+
 Navegação inferior fixa, **5 itens, idêntica para os dois papéis**. `Triar` exibe
 contador de pendentes — e é o **único** item com contador.
 
