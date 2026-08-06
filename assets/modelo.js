@@ -168,6 +168,37 @@
   }
 
   /* ------------------------------------------------------------------
+     Regra genérica — a armadilha da janela de 18 caracteres
+     ------------------------------------------------------------------
+     `padrao` sai dos 18 primeiros caracteres da descrição normalizada.
+     Quando o banco antepõe texto burocrático longo, a janela se esgota
+     ANTES do nome do estabelecimento e a regra passa a valer para todo
+     mundo. Caso real, encontrado em 06/08/2026:
+
+       'Pagamento de Pix QR Code <QUALQUER LOJA>' -> PAGAMENTODEPIXQRCO
+
+     Uma única regra com esse padrão mandava 63 estabelecimentos
+     diferentes para Farmácia — inclusive uma fintech de parcelamento.
+
+     Como distinguir isso de uma rede legítima: 'PAGUEMENOS' também casa
+     com 16 descrições, mas todas CONTÊM "Pague Menos" e geram chaves de
+     18 chars diferentes entre si. O caso patológico é outro: todas as
+     descrições produzem a MESMA chave de 18 caracteres e mesmo assim são
+     estabelecimentos distintos — prova de que a janela nunca chegou ao
+     que diferencia.
+
+     `descricoes` é a lista de descrições que a regra casou. */
+  function regraEhGenerica(descricoes) {
+    if (!descricoes || descricoes.length < 3) return false;
+    var chaves = {}, distintas = {};
+    for (var i = 0; i < descricoes.length; i++) {
+      chaves[normalizar(descricoes[i])] = 1;
+      distintas[descricoes[i]] = 1;
+    }
+    return Object.keys(chaves).length === 1 && Object.keys(distintas).length >= 3;
+  }
+
+  /* ------------------------------------------------------------------
      Estado de um lançamento — a fila de triagem sai daqui
      ------------------------------------------------------------------
      Um lançamento pode faltar categoria, faltar classificação, ou as duas.
@@ -245,6 +276,7 @@
     normalizar: normalizar, normalizarSemDobra: normalizarSemDobra,
     regraQueCasa: regraQueCasa,
     podeVirarRegra: podeVirarRegra, PREFIXO_MINIMO_REGRA: PREFIXO_MINIMO_REGRA,
+    regraEhGenerica: regraEhGenerica,
     faltaCls: faltaCls, faltaCategoria: faltaCategoria,
     precisaTriagem: precisaTriagem, motivoTriagem: motivoTriagem,
     ehCustoDeVida: ehCustoDeVida, ehEmpresa: ehEmpresa, ehSaida: ehSaida,
