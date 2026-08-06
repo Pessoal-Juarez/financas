@@ -235,6 +235,27 @@
     return { ok: true };
   }
 
+  /* "Atualizar do banco" NÃO chama a VPS: insere uma linha em `comandos`
+     com status pendente, e o cron de 2 em 2 minutos lá pega, executa e
+     marca concluído. É esse desacoplamento que permite o front ser HTML
+     estático sem servidor nenhum.
+
+     Diferente de `invalidar()`, que só descarta o cache local e relê o que
+     JÁ está no Supabase. */
+  async function pedirSync(tipo) {
+    var r = await sb.from('comandos')
+      .insert({ tipo: tipo || 'sync', status: 'pendente' }).select().maybeSingle();
+    if (r.error) return { erro: r.error.message };
+    invalidar('comandos');
+    return { ok: true, id: r.data && r.data.id };
+  }
+
+  function comandos(forcar) {
+    return comCache('comandos', function () {
+      return lerTudo('comandos', [['id', false]]);
+    }, forcar);
+  }
+
   function logAlteracoes(forcar) {
     return comCache('log', function () {
       return lerTudo('log_alteracoes', [['id', false]]);
@@ -330,6 +351,7 @@
     metas: metas, salvarMeta: salvarMeta, apagarMeta: apagarMeta,
     config: config, salvarConfig: salvarConfig,
     logAlteracoes: logAlteracoes, perguntas: perguntas, perguntar: perguntar,
+    pedirSync: pedirSync, comandos: comandos,
     salvarPatrimonio: salvarPatrimonio,
     arquivarCategoria: arquivarCategoria, renomearCategoria: renomearCategoria,
     invalidar: invalidar, idadeDoCache: idadeDoCache

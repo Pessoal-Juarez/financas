@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="system">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Assistente · Finanças da Família</title>
+<meta name="theme-color" content="#2f6df0">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Finanças">
+<link rel="stylesheet" href="assets/app.css">
+<style>
+  .voltar { text-decoration:none; color:var(--muted); font-size:.9375rem;
+            min-height:var(--alvo); display:inline-flex; align-items:center; }
+  .perg { padding:12px 0; border-bottom:1px solid var(--border2); }
+  .perg:last-child { border-bottom:0; }
+  .perg .q { font-weight:600; }
+  .perg .a { margin-top:6px; white-space:pre-wrap; word-break:break-word; }
+  .perg .n { color:var(--muted); font-size:.8125rem; margin-top:4px; }
+  .esperando { color:var(--badge-fg); background:var(--badge-bg);
+               padding:2px 8px; border-radius:20px; font-size:.75rem; }
+  textarea { width:100%; min-height:84px; padding:10px 12px; resize:vertical; }
+  .exemplos { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .exemplos button { min-height:36px; padding:0 10px; font-size:.8125rem;
+                     border-radius:18px; border:1px solid var(--field);
+                     background:var(--card); color:var(--muted); cursor:pointer; }
+</style>
+</head>
+<body>
+
+<div class="cabecalho">
+  <h1 class="titulo">Assistente</h1>
+  <a class="voltar" href="mais.html">‹ Mais</a>
+</div>
+
+<div class="envolucro" id="tela">
+  <div class="cartao"><div class="esqueleto"><div class="esq-linha"><div class="esq"></div></div></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/modelo.js"></script>
+<script src="assets/db.js"></script>
+<script src="assets/ui.js"></script>
+<script>
+'use strict';
+const $ = UI.$;
+let PERG = [], enviando = false, timer = null;
+
+const EXEMPLOS = [
+  'Quanto gastamos com restaurante em julho?',
+  'Qual foi o maior gasto do mês passado?',
+  'Quanto a OQV consumiu este ano?',
+  'Estamos gastando mais ou menos que em junho?'
+];
+
+function pendente(p) {
+  return !p.resposta && (p.status || 'pendente') !== 'erro';
+}
+
+function desenhar() {
+  UI.montarNav('mais', 0);
+  const esperando = PERG.filter(pendente).length;
+
+  $('tela').innerHTML =
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0 0 8px">Pergunte em português. A resposta não vem na ' +
+        'hora: a pergunta entra numa fila e a VPS responde em até 2 minutos.</p>' +
+      '<textarea id="txt" placeholder="Ex.: quanto gastamos com farmácia nos últimos 3 meses?" ' +
+        'aria-label="Sua pergunta"></textarea>' +
+      '<div class="exemplos">' +
+        EXEMPLOS.map((e, i) => '<button data-ex="' + i + '">' + UI.escapar(e) + '</button>').join('') +
+      '</div>' +
+      '<button class="btn" id="btnEnviar" style="margin-top:10px">Perguntar</button>' +
+      (esperando
+        ? '<p class="mudo" style="font-size:.8125rem;margin:8px 0 0">' + esperando +
+          ' pergunta' + (esperando === 1 ? '' : 's') + ' na fila. Esta tela se atualiza sozinha.</p>'
+        : '') +
+      '<div id="erroEnv"></div>' +
+    '</div>' +
+
+    '<div class="cartao">' +
+      (PERG.length
+        ? PERG.slice(0, 40).map(p =>
+            '<div class="perg">' +
+              '<div class="q">' + UI.escapar(p.pergunta) + '</div>' +
+              (p.resposta
+                ? '<div class="a">' + UI.escapar(p.resposta) + '</div>'
+                : '<div class="n"><span class="esperando">esperando a VPS responder</span></div>') +
+              '<div class="n">' + UI.escapar(String(p.criado_em || '').slice(0, 16).replace('T', ' ')) +
+                (p.autor ? ' · ' + UI.escapar(p.autor) : '') + '</div>' +
+            '</div>').join('')
+        : '<p class="mudo" style="margin:0">Nenhuma pergunta ainda.</p>') +
+    '</div>';
+
+  document.querySelectorAll('[data-ex]').forEach(b => {
+    b.onclick = () => { $('txt').value = EXEMPLOS[Number(b.dataset.ex)]; $('txt').focus(); };
+  });
+
+  $('btnEnviar').onclick = async () => {
+    const texto = $('txt').value.trim();
+    if (!texto) { UI.toast('Escreva a pergunta'); return; }
+    if (enviando) return;
+    enviando = true;
+    $('btnEnviar').disabled = true; $('btnEnviar').textContent = 'Enviando…';
+    const r = await DB.perguntar(texto);
+    enviando = false;
+    if (r.erro) {
+      $('btnEnviar').disabled = false; $('btnEnviar').textContent = 'Perguntar';
+      $('erroEnv').innerHTML = '<p class="honestidade" style="color:var(--perigo)">' +
+        'Não enviou: ' + UI.escapar(r.erro) + '<br>Sua pergunta continua no campo.</p>';
+      return;
+    }
+    $('txt').value = '';
+    PERG = await DB.perguntas(true);
+    UI.toast('Na fila. A resposta aparece aqui.');
+    desenhar();
+    agendarConferencia();
+  };
+}
+
+/* A resposta vem por um cron de 2 em 2 minutos, então a tela confere
+   sozinha enquanto houver pergunta na fila — e PARA quando não houver.
+   Polling eterno gastaria bateria e requisição à toa. */
+function agendarConferencia() {
+  clearTimeout(timer);
+  if (!PERG.filter(pendente).length) return;
+  timer = setTimeout(async () => {
+    try {
+      const antes = PERG.filter(pendente).length;
+      PERG = await DB.perguntas(true);
+      const agora = PERG.filter(pendente).length;
+      desenhar();
+      if (agora < antes) UI.toast('Respondeu');
+      agendarConferencia();
+    } catch (e) { /* silêncio: é conferência de fundo, não ação do usuário */ }
+  }, 20000);
+}
+
+async function carregar(forcar) {
+  try {
+    PERG = await DB.perguntas(forcar);
+    desenhar();
+    agendarConferencia();
+  } catch (e) { UI.erro($('tela'), e.message, () => carregar(true)); }
+}
+
+(async function () {
+  const perfil = await UI.exigirSessao();
+  if (!perfil) return;
+  await carregar(false);
+})();
+</script>
+</body>
+</html>

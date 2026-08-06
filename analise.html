@@ -154,9 +154,15 @@ function desenhar() {
     '</div>' +
 
     '<div class="cartao">' +
-      '<p class="mudo" style="margin:0">Custo de vida · ' + rotuloJanela + '</p>' +
+      /* "Custo de vida classificado", não "custo de vida": a rosca só
+         desenha o que tem categoria, e a tela Receitas compara contra o
+         custo de vida INTEIRO. Dois números diferentes com o mesmo rótulo
+         em telas diferentes fariam o app se contradizer na cara de quem lê. */
+      '<p class="mudo" style="margin:0">Custo de vida classificado · ' + rotuloJanela + '</p>' +
       rosca(fatias, total) +
       '<p class="heroi" style="text-align:center;font-size:1.75rem">' + UI.BRL0(total) + '</p>' +
+      '<p class="mudo" style="text-align:center;margin:0">de ' +
+        UI.BRL0(M.custoDeVida(doPeriodo)) + ' que a família gastou no período</p>' +
 
       (fatias.length
         ? fatias.map(f =>
@@ -199,6 +205,7 @@ function desenhar() {
         UI.BRL(serie.reduce((a, s) => a + s.valor, 0) / (serie.length || 1)) + '</p>' +
     '</div>' +
 
+    cartaoPiso(b, total) +
     cartaoCartao();
 
   document.querySelectorAll('[data-j]').forEach(el => {
@@ -210,6 +217,53 @@ function desenhar() {
   document.querySelectorAll('[data-v]').forEach(el => {
     el.onclick = () => { visaoCartao = el.dataset.v; desenhar(); };
   });
+}
+
+/* ------------------------------------------------------------------
+   Piso de sobrevivência — fixo vs variável
+   ------------------------------------------------------------------
+   A pergunta é "de quanto eu preciso no pior mês?". O fixo é o que chega
+   independente de escolha (moradia, contas, serviços); o variável ainda
+   responde a decisão; o adicional é o primeiro a cortar.
+
+   No app antigo o mapa era por CATEGORIA e tinha 20 linhas para manter à
+   mão. Aqui é por GRUPO, em `M.TIER` — 10 entradas, e uma categoria nova
+   herda o tier do grupo sem ninguém precisar lembrar de cadastrar. */
+function cartaoPiso(b, total) {
+  const porTier = { 'fixo': 0, 'variável': 0, 'adicional': 0 };
+  b.forEach(t => {
+    const g = grupoDe(t);
+    const tier = M.TIER[g];
+    if (!tier) return;
+    porTier[tier] += Number(t.valor) || 0;
+  });
+  const soma = porTier['fixo'] + porTier['variável'] + porTier['adicional'];
+  if (!soma) return '';
+
+  const nMeses = Math.max(1, mesesDaJanela().length);
+  const CORES = { 'fixo': 'var(--perigo)', 'variável': 'var(--acento)', 'adicional': 'var(--ok)' };
+  const EXPLICA = {
+    'fixo': 'chega todo mês, independe de escolha',
+    'variável': 'responde a decisão, mas não dá para zerar',
+    'adicional': 'o primeiro a cortar num aperto'
+  };
+
+  return '<div class="cartao">' +
+    '<p class="mudo" style="margin:0 0 2px">Piso de sobrevivência · média por mês</p>' +
+    '<p class="heroi" style="font-size:1.5rem;margin:2px 0">' +
+      UI.BRL0(porTier['fixo'] / nMeses) + '</p>' +
+    '<p class="heroi-sub">É o mínimo que sai todo mês mesmo se vocês cortarem tudo que dá. ' +
+      'Cortando só o adicional, o custo cairia para ' +
+      UI.BRL0((porTier['fixo'] + porTier['variável']) / nMeses) + '.</p>' +
+    ['fixo', 'variável', 'adicional'].map(k =>
+      '<div class="grupo-linha" style="cursor:default">' +
+        '<span class="ponto" style="background:' + CORES[k] + '"></span>' +
+        '<span class="nome">' + k.charAt(0).toUpperCase() + k.slice(1) +
+          '<div class="mudo" style="font-size:.75rem">' + EXPLICA[k] + '</div></span>' +
+        '<span class="pct">' + Math.round(porTier[k] / soma * 100) + '%</span>' +
+        '<b class="valor">' + UI.BRL(porTier[k] / nMeses) + '</b>' +
+      '</div>').join('') +
+  '</div>';
 }
 
 function subsDe(grupo, b) {

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="system">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Receitas · Finanças da Família</title>
+<meta name="theme-color" content="#2f6df0">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Finanças">
+<link rel="stylesheet" href="assets/app.css">
+<style>
+  .voltar { text-decoration:none; color:var(--muted); font-size:.9375rem;
+            min-height:var(--alvo); display:inline-flex; align-items:center; }
+  .lin { display:flex; gap:10px; align-items:center; padding:9px 0;
+         border-bottom:1px solid var(--border2); }
+  .lin:last-child { border-bottom:0; }
+  .lin .nome { flex:1; min-width:0; }
+  .lin .n { color:var(--muted); font-size:.8125rem; }
+  .barra { height:4px; border-radius:2px; margin-top:5px; }
+  .item { display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--border2); }
+  .item:last-child { border-bottom:0; }
+  .item .d { flex:1; min-width:0; font-size:.9375rem; word-break:break-word; }
+</style>
+</head>
+<body>
+
+<div class="cabecalho">
+  <h1 class="titulo">Receitas</h1>
+  <a class="voltar" href="mais.html">‹ Mais</a>
+</div>
+
+<div class="envolucro" id="tela">
+  <div class="cartao"><div class="esqueleto"><div class="esq-linha"><div class="esq"></div></div></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/modelo.js"></script>
+<script src="assets/db.js"></script>
+<script src="assets/ui.js"></script>
+<script>
+'use strict';
+const $ = UI.$;
+let TX = [], CATS = [], MESES = [], janela = 12;
+
+function catDe(t) { return CATS.find(c => c.id === t.categoria_id) || null; }
+function noPeriodo(t) { return MESES.slice(0, janela).indexOf(M.ym(t.data)) !== -1; }
+
+/* Receita = entrada que NÃO é movimentação. Resgate de CDB e transferência
+   entre contas próprias entram como `tipo='entrada'` mas não são renda —
+   somá-las infla a receita com dinheiro que já era seu. `Resgate CDB`
+   sozinho soma R$ 137 mil na base. */
+function ehReceita(t) {
+  if (M.ehSaida(t)) return false;
+  const c = catDe(t);
+  if (c && c.grupo === M.GRUPO_MOVIMENTACAO) return false;
+  if (t.cls === M.CLS_NAO_CONTA) return false;
+  return true;
+}
+
+function desenhar() {
+  UI.montarNav('mais', TX.filter(M.precisaTriagem).length);
+  const doPeriodo = TX.filter(noPeriodo);
+  const receitas = doPeriodo.filter(ehReceita);
+  const total = M.somar(receitas);
+  const rotulo = janela === 1 ? M.rotuloMes(MESES[0]) : 'últimos ' + janela + ' meses';
+
+  // Movimentação que foi excluída — declarada, nunca escondida.
+  const movimentacao = M.somar(doPeriodo.filter(t => {
+    if (M.ehSaida(t)) return false;
+    const c = catDe(t);
+    return (c && c.grupo === M.GRUPO_MOVIMENTACAO) || t.cls === M.CLS_NAO_CONTA;
+  }));
+
+  const porCls = {}, porCat = {};
+  receitas.forEach(t => {
+    const k = t.cls || 'Indefinido';
+    porCls[k] = (porCls[k] || 0) + (Number(t.valor) || 0);
+    const c = catDe(t);
+    const n = c ? c.nome : (t.categoria || 'sem categoria');
+    porCat[n] = (porCat[n] || 0) + (Number(t.valor) || 0);
+  });
+
+  const serie = MESES.slice(0, 12).slice().reverse().map(m => ({
+    rotulo: M.rotuloMes(m),
+    valor: M.somar(TX.filter(t => M.ym(t.data) === m && ehReceita(t)))
+  }));
+
+  // Comparação com o custo de vida: a pergunta real é "entra mais do que sai?"
+  const custo = M.custoDeVida(doPeriodo);
+
+  const linhas = (obj, cores) => {
+    const arr = Object.entries(obj).sort((a, b) => b[1] - a[1]);
+    const maior = arr.length ? arr[0][1] : 1;
+    return arr.map(([k, v]) =>
+      '<div class="lin"><span class="nome">' + UI.escapar(cores ? M.rotulo(k) : k) +
+        '<div class="barra" style="width:' + Math.max(4, Math.round(v / maior * 100)) + '%;' +
+        'background:' + (cores ? M.cor(k) : 'var(--ok)') + '"></div></span>' +
+      '<b class="valor">' + UI.BRL(v) + '</b></div>').join('');
+  };
+
+  $('tela').innerHTML =
+    '<div class="cartao"><div style="display:flex;gap:6px">' +
+      [1, 3, 6, 12].map(n => '<button class="btn ' + (n === janela ? '' : 'alt') +
+        '" style="flex:1" data-j="' + n + '">' + (n === 1 ? 'Mês' : n + 'm') + '</button>').join('') +
+    '</div></div>' +
+
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0">Entrou · ' + rotulo + '</p>' +
+      '<p class="heroi sensivel">' + UI.BRL0(total) + '</p>' +
+      '<p class="heroi-sub">Contra ' + UI.BRL0(custo) + ' de custo de vida no mesmo período. ' +
+        (total >= custo
+          ? '<b>Sobrou ' + UI.BRL0(total - custo) + '.</b>'
+          : '<b>Faltaram ' + UI.BRL0(custo - total) + ' — vieram da reserva.</b>') + '</p>' +
+      (movimentacao > 0
+        ? '<p class="honestidade"><b>' + UI.BRL(movimentacao) + '</b> de entradas ficaram de ' +
+          'fora: são movimentação, não renda — resgate de investimento e transferência entre ' +
+          'contas suas. Somá-las inflaria a receita com dinheiro que já era seu.</p>'
+        : '') +
+    '</div>' +
+
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0 0 4px">Mês a mês</p>' +
+      UI.barrasComTendencia(serie, { cor: 'var(--ok)', titulo: 'Receitas por mês' }) +
+      '<p class="mudo" style="font-size:.8125rem;margin:6px 0 0">' +
+        UI.leituraDaTendencia(serie) + '</p>' +
+    '</div>' +
+
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0 0 6px">De quem</p>' +
+      (Object.keys(porCls).length ? linhas(porCls, true) : '<p class="mudo">Nada no período.</p>') +
+    '</div>' +
+
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0 0 6px">De onde</p>' +
+      (Object.keys(porCat).length ? linhas(porCat, false) : '<p class="mudo">Nada no período.</p>') +
+    '</div>' +
+
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0 0 6px">Lançamentos</p>' +
+      (receitas.length
+        ? receitas.slice().sort((a, b) => String(b.data).localeCompare(String(a.data)))
+            .slice(0, 60).map(t =>
+            '<div class="item"><span class="d">' + UI.escapar(t.descricao) +
+              '<div class="n">' + UI.escapar(t.data) + ' · ' + UI.escapar(M.rotulo(t.cls)) + '</div></span>' +
+            '<b class="valor" style="color:var(--ok)">' + UI.BRL(t.valor) + '</b></div>').join('') +
+          (receitas.length > 60
+            ? '<p class="mudo" style="font-size:.8125rem;margin:8px 0 0">Mostrando 60 de ' +
+              receitas.length + ' — os totais acima consideram todos.</p>' : '')
+        : '<p class="mudo">Nenhuma receita no período.</p>') +
+    '</div>';
+
+  document.querySelectorAll('[data-j]').forEach(el => {
+    el.onclick = () => { janela = Number(el.dataset.j); desenhar(); };
+  });
+}
+
+async function carregar(forcar) {
+  try {
+    const d = await DB.tudo(forcar);
+    TX = d.tx; CATS = d.categorias;
+    MESES = M.mesesComDado(TX);
+    desenhar();
+  } catch (e) { UI.erro($('tela'), e.message, () => carregar(true)); }
+}
+
+(async function () {
+  const perfil = await UI.exigirSessao();
+  if (!perfil) return;
+  UI.puxarParaAtualizar(() => carregar(true));
+  await carregar(false);
+})();
+</script>
+</body>
+</html>
