@@ -1,6 +1,6 @@
 # spec.md — Redesign do app Finanças da Família
 
-**Versão:** 1.1 · **Data:** 06/08/2026 · **Status:** ✅ **revisada e aprovada pelo Juarez**
+**Versão:** 1.2 · **Data:** 06/08/2026 · **Status:** ✅ **revisada e aprovada pelo Juarez**
 
 Especificação do redesign completo das telas. Consolida as decisões do brainstorming de
 05/08/2026 e da revisão de 06/08/2026. **Não contém implementação** — o próximo passo é
@@ -12,10 +12,23 @@ quebrar em tarefas e executar a Fase 1 da migração.
 |---|---|---|
 | 1 | **Planejar passa a morar dentro de "Mais"** — a barra tinha 5 itens e a tela ficara órfã | §3 |
 | 2 | **Alvo numérico de sucesso**: sem classificação < 8% até 30/09/2026 | §1 |
-| 3 | **Duas filas separadas** — a taxonomia jogaria +387 lançamentos na triagem (623 → 1.010, medido no banco). Fluxo corrente e dívida histórica passam a ser filas distintas | §4, §7 |
-| 4 | **Fase 3 da migração cortada do escopo** — única operação irreversível, em banco sem PITR, por ganho cosmético | §6, §10 |
-| 5 | **Comportamento do trigger definido** para texto desconhecido vindo da VPS | §6 |
-| 6 | **CDB não vem pelo Open Finance** — verificado em 06/08. Automação cobre 1 das 3 linhas do patrimônio | §7 |
+| 3 | **Fase 3 da migração cortada do escopo** — única operação irreversível, em banco sem PITR, por ganho cosmético | §6, §10 |
+| 4 | **Comportamento do trigger definido** para texto desconhecido vindo da VPS | §6 |
+| 5 | **CDB não vem pelo Open Finance** — verificado em 06/08. Automação cobre 1 das 3 linhas do patrimônio | §7 |
+
+### v1.2 — o que a pesquisa de implementação mudou (mesmo dia)
+
+Ao quebrar a spec em plano de construção, três medições no banco mudaram decisões:
+
+| # | Achado | Consequência |
+|---|---|---|
+| 7 | O de-para cobria só `transacoes`. **8 categorias órfãs em `regras`**, uma com **54 regras** (`Pix pessoas`) | 2 subs novas; asserção obrigatória cobrindo as duas tabelas |
+| 8 | **132 regras classificavam para `Outros` — 128 delas são marketplace** (Amazon/Shopee/ML) | grupo **`Compras`** criado; `Outros` deixa de existir; 128 regras superajustadas viram 3 |
+| 9 | 3 categorias mandadas para "Não conta" eram **dinheiro real** (R$ 129 mil de receita, R$ 746 de gasto) | grupo `Receitas` criado; `Internacional` vai para triagem |
+| 10 | Com marketplace nomeado, a dívida histórica caiu de **388 para 33** | **as duas filas viraram uma só** (`Triar`, 656) — a separação deixou de se pagar |
+
+A decisão nº 3 da v1.1 (duas filas) foi **revertida pela nº 10**: ela existia para
+proteger de uma fila de 388, e o número deixou de existir.
 
 ---
 
@@ -37,8 +50,8 @@ maximizar o fôlego da reserva. Esses podem ser consequência, não a métrica.
 
 Como o alvo é atingível sem heroísmo: 107 dos 623 caem na varredura retroativa de um
 clique (§7, verificado no banco em 06/08), e o restante depende da triagem ficar rápida
-o bastante para caber num intervalo de café. A fila da dívida histórica (§4) **não conta
-para este alvo** — ela tem ritmo próprio e nenhum prazo.
+o bastante para caber num intervalo de café. A fila total pós-migração é de **656**
+(§4) — 623 do fluxo corrente mais 33 de dívida antiga.
 
 ### A tensão central que governa o design
 
@@ -90,9 +103,8 @@ Início · Triar · Lançamentos · Análise · Mais
 | 4 | **Análise** | "qual é o meu padrão ao longo do tempo?" | barra | ambos (colab sem empresas) |
 | 5 | **Mais** | ferramentas e preferências | barra | ambos |
 | 5a | **Planejar** | "quanto posso gastar? quanto tenho?" | dentro de Mais | **só gestor** |
-| 5b | **Arrumar o histórico** | "e a bagunça antiga?" | dentro de Mais | ambos |
-| 5c | **Categorias** | editar grupos e subcategorias | dentro de Mais | ambos (colab só cria) |
-| 5d | **OQV** | contas da empresa | dentro de Mais | **só gestor** |
+| 5b | **Categorias** | editar grupos e subcategorias | dentro de Mais | ambos (colab só cria) |
+| 5c | **OQV** | contas da empresa | dentro de Mais | **só gestor** |
 
 **Decisão de 06/08/2026 — Planejar mora dentro de "Mais".** Na v1.0 a barra declarava 5
 itens mas a tabela listava 8 telas, e Planejar (orçamento + patrimônio + fôlego) tinha
@@ -147,51 +159,49 @@ de ser marcados como defeito e passam a ser fila de trabalho.
 
 ### Categorias — dois níveis
 
-**9 grupos, ~38 subcategorias.** Base: padrão Plaid (16/104, reduzido de 600+ porque
-excesso confunde) e grupos da POF/IBGE, dimensionado para uma família.
+**11 grupos, 47 subcategorias** — 10 de despesa mais `Receitas`. Base: padrão Plaid
+(16/104, reduzido de 600+ porque excesso confunde) e grupos da POF/IBGE, dimensionado
+para uma família.
 
-Grupos: Alimentação · Moradia · Saúde · Transporte · Cuidado pessoal · Educação ·
-Lazer · Serviços & obrigações · Empresas.
+Grupos de despesa: Alimentação · Moradia · Saúde · Transporte · Cuidado pessoal ·
+Educação · Lazer · **Compras** · Serviços & obrigações · Empresas.
+Mais o grupo **`Receitas`**, que não aparece em Análise nem no orçamento — existe para
+que toda categoria tenha um grupo.
 
 **Grupo é o eixo padrão** de Análise e do orçamento; subcategoria aparece no drill-down.
-Orçamento com 9 linhas se revisa em dois minutos; com 40, é abandonado no segundo mês.
+Orçamento com 10 linhas se revisa em dois minutos; com 47, é abandonado no segundo mês.
 
-Taxonomia completa e de-para das 73 categorias atuais:
-[`taxonomia-categorias.md`](taxonomia-categorias.md).
+Taxonomia completa e de-para: [`taxonomia-categorias.md`](taxonomia-categorias.md).
 
-### ⚠️ O custo escondido da taxonomia — medido em 06/08/2026
+### `Outros` era marketplace — o achado que reorganizou a taxonomia
 
-O de-para manda 9 categorias "de volta para a fila de triagem" (`Outros` com 355
-lançamentos, `Indefinido`, `Clínica?`, `Serviços`, `Loja esposa`, `Receita a
-identificar`…). Cruzando com o que já está pendente:
+Na v1.1 esta seção descrevia um problema: o de-para mandava 9 categorias de volta para a
+fila, `Outros` entre elas, e a triagem saltaria de **623 para 1.011**. A solução desenhada
+era separar em duas filas. Investigando **por que** `Outros` era tão grande, o problema
+se dissolveu.
 
-| | |
-|---|---|
-| Fila hoje (`cls` indefinido) | 623 |
-| Entram na fila pela taxonomia, e ainda não estavam | **+387** · R$ 21.754 em saídas |
-| Fila logo após a migração, se nada for feito | **1.010** |
+**As 132 regras que classificavam para `Outros` são, 128 delas, marketplace** — `AMAZONBR`
+(79 usos), ~100 padrões `SHOPEE…` (um por vendedor) e `MERCADOLIVRE…`/`MERCADOPAGO…`.
+`Outros` nunca foi bagunça: era **marketplace sem nome**. Amazon, Shopee e Mercado Livre
+não dizem na descrição *o que* foi comprado, então tudo caía no balde genérico.
 
-Ou seja: aplicada de forma ingênua, a taxonomia **quase dobra a fila** e o app
-redesenhado estrearia com mais trabalho pendente do que o atual — atacando de frente o
-objetivo (d) e o alvo de §1.
+Isso é um tipo de gasto legítimo e nomeável — o "General Merchandise" do Plaid. Virou o
+grupo **`Compras`** (Marketplace · Eletrônicos · Presente).
 
-**Decisão: duas filas, com pesos diferentes.**
-
-| | **Triar** | **Arrumar o histórico** |
+| | Com `Outros` na fila | Com `Compras › Marketplace` |
 |---|---|---|
-| O que é | fluxo corrente: 623 hoje, 516 após a varredura | dívida antiga: os 387 |
-| Onde | item da barra | dentro de "Mais" |
-| Contador na navegação | **sim** | **não** |
-| Conta para o alvo de §1 | sim | **não** |
-| Prazo | 30/09/2026 | nenhum |
+| Dívida histórica | 388 | **33** |
+| Triagem total | 1.011 | **656** |
+| Regras superajustadas | 128 | **3** (`SHOPEE`, `AMAZON`, `MERCADOLIVRE`) |
+| Telas necessárias | 2 filas | **1** |
 
-As duas alimentam a linha de honestidade de Análise (§3) — o número continua declarando
-toda a incerteza, somada. O que muda é **onde o app cobra**: a dívida histórica fica
-disponível para quem quiser mexer, sem badge, sem vermelho, sem lembrete.
+**Decisão: fila única.** `Triar` com 656 — 623 do fluxo corrente + 33 de dívida antiga,
+dos quais 107 caem na varredura retroativa. A separação em duas filas existia para
+proteger de um número que deixou de existir; mantê-la custaria uma tela inteira e um
+conceito a mais na interface para 33 lançamentos.
 
-Alternativas descartadas: manter `Outros` como subcategoria legítima (a fila ficaria em
-516, mas o buraco de 31% do gráfico — o problema que originou a taxonomia — continuaria
-lá, só renomeado); e assumir a fila de 1.010 (honesto com o dado, péssimo para o objetivo).
+**A lição, que vale para o resto do projeto:** classificar direito a categoria mais
+volumosa vale mais que qualquer engenharia de interface construída em cima da bagunça.
 
 ---
 
@@ -248,7 +258,7 @@ em português. **Não mexer** — o front atual e a VPS dependem delas.
 
 | Tabela | Mudança | Volume |
 |---|---|---|
-| **`categorias`** (nova) | `id`, `grupo` (text), `nome`, `ativa`, `ordem` | seed ~38 linhas |
+| **`categorias`** (nova) | `id`, `grupo` (text), `nome`, `ativa`, `ordem` | seed **47 linhas** |
 | `transacoes` | + `categoria_id` FK nullable; `categoria` texto **permanece** | backfill 3.132 |
 | `regras` | + `categoria_id` FK nullable; `categoria` texto permanece | backfill 520 |
 | `metas` | recriada com `grupo` como chave | **zero** (está vazia) |
@@ -325,16 +335,15 @@ maiúsculas, 18 chars) dos 623 pendentes contra as 520 regras por "contém", o r
 **Propor, nunca aplicar calado.** Mexer em 107 lançamentos sem o usuário ver seria
 rápido e errado.
 
-### Arrumar o histórico — a segunda fila
+### Consolidação das regras de marketplace
 
-Tela dentro de "Mais", alimentada pelos **387** lançamentos que a nova taxonomia
-desclassifica (§4). Mesmo cartão da triagem, mesma mecânica de aprendizado, **sem
-contador na navegação e sem prazo**. Ordenada por valor decrescente, para que o esforço
-de quem entrar ali por dez minutos caia onde muda o gráfico.
+Parte da migração, não da tela: as **128 regras superajustadas** de marketplace (uma por
+vendedor da Shopee) viram **3** — `SHOPEE`, `AMAZON`, `MERCADOLIVRE` — apontando para
+`Compras › Marketplace`. As 4 regras `Outros` que não são marketplace vão para a triagem.
 
-A separação existe para proteger o objetivo (d): a dívida histórica é trabalho opcional
-de arqueologia, e misturá-la com o fluxo corrente faria a fila parecer eternamente
-perdida — o jeito mais rápido de fazer alguém desistir das duas.
+Isso não é limpeza cosmética: com uma regra por vendedor, **todo vendedor novo da Shopee
+gera um lançamento sem classificação**, e a fila se realimenta sozinha. Três regras por
+prefixo cortam essa torneira.
 
 ### Detecção de anomalias (card "O que fugiu do padrão")
 
@@ -478,7 +487,8 @@ Pages funcionando.
 | Cache servindo dado velho após o cron | decisão sobre número desatualizado | TTL + "atualizado há X min" + pull-to-refresh |
 | ~~CDB pode não vir pelo Open Finance~~ | **confirmado em 06/08: não vem** | 2 das 3 linhas do patrimônio seguem manuais; alerta de 30 dias vira requisito (§7) |
 | 516 pendentes continuam exigindo julgamento humano | fila não zera sozinha | triagem otimizada para velocidade; "Mudar" ensina a regra |
-| A segunda fila (387) nunca ser tocada | 31% do gráfico continua opaco no histórico | aceito por decisão: sem contador e sem prazo. Análise declara a incerteza; o alvo de §1 não depende dela |
+| `Compras › Marketplace` virar o novo `Outros` — um balde grande que não explica nada | 31% do gráfico só troca de nome | drill-down por loja (Amazon/Shopee/ML) e revisão do tamanho da fatia após 2 meses de uso |
+| Regra por prefixo (`SHOPEE`) capturar o que não devia | classificação errada em massa, silenciosa | prefixos são 3 e específicos; `verificacao.sql` reporta o volume classificado por cada um |
 | Patrimônio parado desde 05/06 | fôlego de 1,8 meses pode estar errado | conta corrente automatizada; alerta de 30 dias nas duas linhas manuais (57% do total) |
 
 ---
@@ -493,7 +503,7 @@ garantido.
 Ordem de ataque:
 
 1. Export CSV de `transacoes` e `regras` (§10)
-2. **Fase 1** — `categorias` + seed dos 9 grupos/~38 subs + `categoria_id` + backfill + `verificacao.sql`
+2. **Fase 1** — `categorias` + seed dos 11 grupos/47 subs + `categoria_id` + backfill + consolidação das regras de marketplace + `verificacao.sql`
 3. `assets/modelo.js` (grupos, rótulos, classes) e `assets/db.js` (leitura paginada + cache)
 4. **Fase 2** — trigger de resolução + front lendo por `categoria_id`
 5. Telas, na ordem: Triar → Início → Análise → Lançamentos → Mais/Planejar

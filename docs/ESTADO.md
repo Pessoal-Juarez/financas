@@ -7,9 +7,10 @@
 
 ## Em uma frase
 
-A [`spec.md`](spec.md) foi **revisada e aprovada** (v1.1) e o roteiro está definido.
-Nada do redesign foi implementado ainda. O próximo passo é a **Fase 1 da migração de
-dados** — tabela `categorias`, seed, `categoria_id`, backfill.
+A [`spec.md`](spec.md) foi **revisada e aprovada** (v1.2) e o plano de construção está
+escrito em [`plans/redesign-financas.md`](../plans/redesign-financas.md) — 10 passos.
+Nada foi implementado ainda. O próximo passo é o **passo 1: export CSV**, e em seguida a
+**Fase 1 da migração**.
 
 ---
 
@@ -24,18 +25,47 @@ medidos no banco durante a sessão.
 |---|---|---|
 | 1 | **Planejar mora dentro de "Mais"** | a barra tinha 5 itens e 8 telas; promovê-la exigiria barra variando por papel (a Raiane não vê Planejar), e 6 itens apertariam os alvos de 44px |
 | 2 | **Alvo numérico: sem classificação < 8% até 30/09/2026** | hoje 19,9%. Único número que diz se o redesign funcionou |
-| 3 | **Duas filas separadas** | a taxonomia jogaria +387 na triagem (623 → **1.010**). "Triar" = fluxo corrente com contador; "Arrumar o histórico" = dívida antiga, sem contador e sem prazo |
-| 4 | **Fase 3 da migração cortada** | única operação irreversível do plano, em banco free sem PITR, por ganho cosmético. Texto e `categoria_id` convivem para sempre |
-| 5 | **Trigger com comportamento definido** | texto desconhecido da VPS → `categoria_id` nulo, texto preservado, vai pra fila. Nunca cria categoria |
-| 6 | **Rótulos leves aprovados** | Da casa · Do Juarez · Da Raiane · Clínica · Emprestado · Não conta · **A classificar** |
+| 3 | **Fase 3 da migração cortada** | única operação irreversível do plano, em banco free sem PITR, por ganho cosmético. Texto e `categoria_id` convivem para sempre |
+| 4 | **Trigger com comportamento definido** | texto desconhecido da VPS → `categoria_id` nulo, texto preservado, vai pra fila. Nunca cria categoria |
+| 5 | **Rótulos leves aprovados** | Da casa · Do Juarez · Da Raiane · Clínica · Emprestado · Não conta · **A classificar** |
+
+### O achado do dia: `Outros` era marketplace
+
+Ao quebrar a spec em plano, a pesquisa foi ver **por que** `Outros` era 31% de julho. As
+**132 regras** que classificavam para lá: `AMAZONBR` (79 usos), ~100 padrões `SHOPEE…`
+(um por vendedor!), `MERCADOLIVRE…`. **128 de 132 são marketplace.**
+
+`Outros` nunca foi bagunça — era **marketplace sem nome**. Virou o grupo **`Compras`**
+(Marketplace · Eletrônicos · Presente), o "General Merchandise" do Plaid.
+
+| | Antes | Depois |
+|---|---|---|
+| Dívida histórica que iria pra fila | 388 | **33** |
+| Fila total pós-migração | 1.011 | **656** |
+| Regras de marketplace | 128 superajustadas | **3** por prefixo |
+| Telas de fila a construir | 2 | **1** |
+
+Isso **reverteu a decisão das duas filas**: elas existiam para proteger de uma fila de
+388, e o número deixou de existir.
+
+**Lição:** classificar direito a categoria mais volumosa vale mais que qualquer
+engenharia de interface em cima da bagunça.
+
+### Outros achados da pesquisa
+
+| Achado | Consequência |
+|---|---|
+| O de-para cobria só `transacoes` — **8 categorias órfãs em `regras`**, uma com **54 regras** (`Pix pessoas`) | 2 subs novas; asserção obrigatória nas duas tabelas |
+| 3 categorias mandadas para "Não conta" eram **dinheiro real**: R$ 129 mil de receita (recebível + dividendos da sociedade antiga) e R$ 746 de gasto (`Internacional`) | grupo `Receitas` criado; `Internacional` vai pra triagem |
+| Taxonomia final | **11 grupos, 47 subcategorias** (era "9 grupos, ~38 subs") |
 
 ### Números medidos na sessão (não são estimativa)
 
 | | |
 |---|---|
 | Pendentes que casam com regra existente | **107** de 623 — a varredura retroativa se confirma |
-| Lançamentos que a taxonomia desclassificaria | **+387** · R$ 21.754 em saídas |
-| Fila se a taxonomia fosse aplicada de forma ingênua | **1.010** |
+| Fila única pós-migração | **656** (623 + 33) |
+| `Compras › Marketplace` | **355** lançamentos (os antigos `Outros`) |
 
 ### Open Finance — CDB verificado ✅ (pendência antiga, resolvida)
 
@@ -73,18 +103,23 @@ da UI — paginação, alvos de toque, contraste (`e38fe5b`).
 
 ## Próximo passo
 
-**Fase 1 da migração.** Ordem de ataque definida na [`spec.md`](spec.md) §14:
+**Passo 1 do plano: export CSV.** O plano completo, com contexto próprio por passo, está
+em [`plans/redesign-financas.md`](../plans/redesign-financas.md):
 
-1. Export CSV de `transacoes` e `regras` (rede de segurança — plano free, sem PITR)
-2. **Fase 1** — `categorias` + seed dos 9 grupos/~38 subs + `categoria_id` + backfill + `verificacao.sql`
-3. `assets/modelo.js` e `assets/db.js` (leitura paginada + cache)
-4. **Fase 2** — trigger de resolução + front lendo por `categoria_id`
-5. Telas: Triar → Início → Análise → Lançamentos → Mais/Planejar
+| # | Passo | |
+|---|---|---|
+| 1 | Export CSV de `transacoes` e `regras` | rede de segurança — plano free, sem PITR |
+| 2 | Fase 1a: `categorias` + seed (11 grupos, 47 subs) + RLS | |
+| 3 | Fase 1b: `categoria_id` + backfill + **consolidação das 128 regras de marketplace** | passo mais delicado |
+| 4 | `sql/verificacao.sql` | única validação do projeto |
+| 5 | `assets/` — modelo.js, db.js, ui.js, app.css | cache é obrigatório |
+| 6 | Fase 2: trigger + front lendo por `categoria_id` | VPS não muda |
+| 7–10 | Telas: Triar → Início → Análise → resto | |
 
 ⚠️ Não começar pelas telas. Tela sem taxonomia consolidada é retrabalho garantido.
 
 > A v1.0 apontava `/break` como próximo comando. **Esse comando não existe** nesta
-> instalação do Claude Code — o equivalente é o skill `blueprint` ou `to-issues`.
+> instalação do Claude Code — o plano foi gerado com o skill `blueprint`.
 
 ---
 
@@ -107,7 +142,8 @@ da UI — paginação, alvos de toque, contraste (`e38fe5b`).
 
 Documentos em `docs/`:
 
-- **`spec.md`** — a especificação aprovada (v1.1) ⭐
+- **`spec.md`** — a especificação aprovada (v1.2) ⭐
+- **`../plans/redesign-financas.md`** — o plano de construção, 10 passos ⭐
 - `taxonomia-categorias.md` — os 9 grupos e o de-para das 73 categorias
 - `stitch-prompts.md` — prompts para gerar as telas (⚠️ desatualizados, ver pendência 2)
 - `architecture.md` · `workflow.md` · `README.md` — o sistema como ele é hoje
