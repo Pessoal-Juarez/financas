@@ -1,441 +1,230 @@
 # Onde paramos
 
-**Última atualização:** 06/08/2026.
+**Última atualização:** 06/08/2026, fim do dia.
 **Leia este arquivo primeiro** ao retomar o projeto.
 
 ---
 
 ## Em uma frase
 
-Spec aprovada (v1.2), plano de construção escrito
-([`plans/redesign-financas.md`](../plans/redesign-financas.md), 10 passos) e os
-**passos 1 a 4 estão feitos**: a migração de dados foi aplicada e as 15 asserções do
-`verificacao.sql` passam. O próximo é o **passo 5, a camada `assets/`**.
+O app novo está **inteiro e funcionando na branch `redesign`**, com paridade de
+funcionalidades em relação ao app antigo. A `main` continua servindo o app velho — a
+virada de chave **ainda não foi feita**, de propósito. O próximo passo é a **Fase B** ou a
+**virada**, o que o Juarez decidir.
 
-## Estado da migração (06/08/2026)
+## Como rodar em 10 segundos
 
-| Passo | | |
-|---|---|---|
-| 1 | Export CSV de `transacoes` e `regras` | ✅ em `Pessoal\backups\2026-08-06\` (fora do repo) |
-| 2 | Tabela `categorias` + seed + RLS | ✅ **54 subs, 12 grupos** |
-| 3 | `categoria_id` + backfill nas duas tabelas | ✅ aplicado |
-| 4 | `sql/verificacao.sql` | ✅ **15/15 PASSOU** |
-| 5 | Camada `assets/` + fontes | ✅ na branch **`redesign`** · **40/41** em `assets/_verificar.html` |
-| 6 | Fase 2 — trigger de resolução | ✅ aplicado · 8 cenários testados · 21/21 no `verificacao.sql` |
-| 7 | **Tela Triar** | ✅ na branch `redesign` · verificada no navegador com sessão real |
-| 8 | **Tela Início** | ✅ na branch `redesign` · anomalias conferidas contra SQL |
-| 9 | **Tela Análise** | ✅ na branch `redesign` · total confere com SQL |
-| 10 | **Lançamentos, Mais, Planejar, Categorias** | ✅ na branch `redesign` |
-
-**As 10 etapas do plano estão feitas.** Falta a virada de chave — ver "O que falta" abaixo.
-
-**Passo 10.** Quatro telas mais três mudanças de banco
-(`sql/2026-08-06_metas-patrimonio-categorias.sql`):
-
-- **Lançamentos** — busca com debounce, filtros (tipo, mês, classificação, grupo, "só o
-  que falta triar"), corte em **200 linhas** com o aviso de que **o total considera
-  todas**. O corte é a armadilha nº 3 do projeto, não preferência: 3.011 linhas de uma vez
-  são ~50 mil nós de DOM e o celular trava.
-- **Mais** — hub. Planejar e OQV só aparecem para o gestor; a barra inferior continua
-  idêntica para os dois papéis.
-- **Planejar** — abre no **estado de primeira vez** (`metas` tem 0 linhas desde sempre),
-  com "Sugerir meu orçamento" a partir da média de 3 meses: **R$ 7.081,02**. Patrimônio
-  com CDB e BTG editáveis e a conta corrente **somente-leitura** — ela é sobrescrita pelo
-  sync diário, e o que fosse digitado sumiria na manhã seguinte sem aviso.
-- **Categorias** — criar (ambos), renomear e arquivar (só gestor).
-
-### `metas.categoria` é PRIMARY KEY
-
-A spec pedia `metas` recriada com grupo como chave. Não deu: `categoria` é a PK e o
-`dashboard.html` **que está no ar** lê e ordena por ela. `drop not null` foi recusado pelo
-Postgres (42P16), e trocar a PK quebraria produção. Solução: as duas colunas guardam o
-mesmo texto — `grupo` diz o significado, `categoria` mantém a chave e o app antigo vivo.
-Redundância transitória e deliberada.
-
-### Arquivar categoria é atômico de verdade
-
-É o único ponto do app onde falha no meio corrompe dado: mover os lançamentos **e**
-arquivar têm que acontecer juntos. Virou a função `arquivar_categoria(origem, destino)` no
-banco, chamada por RPC. Testado com categoria descartável: move, arquiva, e recusa destino
-igual à origem. Em caso de erro **o diálogo não fecha** — fechar daria impressão de
-sucesso parcial, que é justamente o que não existe aqui.
-
----
-
-## O que falta — a virada de chave
-
-**O app novo ainda não está no ar, e isso é deliberado.** Tudo vive na branch `redesign`;
-a `main` continua servindo o `index.html` antigo, que lê `categoria` como texto (mantido
-em sincronia pelo trigger). Ninguém foi interrompido.
-
-Para virar, três decisões que são suas:
-
-1. **`index.html` vira porta de entrada** — login e redirecionamento para `inicio.html`.
-   ⚠️ O `start_url` do manifest é `"."`, então a raiz **tem** que continuar respondendo;
-   mudar isso quebra os PWAs já instalados nos celulares.
-2. **O que fazer com `dashboard.html`, a aba Assistente e a aba Alterações.** Não estão no
-   escopo das 8 telas da spec e continuam só no app antigo.
-3. **Merge de `redesign` na `main`** — é o deploy. O GitHub Pages republica em ~1 min.
-
-Sugestão: usar as telas novas por alguns dias servindo local (`python -m http.server 8777`
-com a branch `redesign` ativa) antes de virar.
-
-**Passo 9 — Análise.** Rosca por grupo em **SVG puro, sem Chart.js**: dependência de CDN
-quebraria o app offline, e as fontes foram auto-hospedadas justamente para isso. Janela de
-1/3/6/12 meses, drill-down por grupo, tendência de 12 meses sempre visível (a pergunta da
-tela é "ao longo do tempo" e não pode encolher junto com a janela), e as duas visões de
-cartão.
-
-### O total não era a soma das fatias
-
-Faltar **categoria** e faltar **classificação** são buracos diferentes:
-
-| | |
-|---|---|
-| sem `cls` | nem entra na base — não se sabe se é gasto da família |
-| com `cls`, sem categoria | entra na base mas não pertence a fatia nenhuma |
-
-A primeira versão somava o total sobre a base inteira, então o número embaixo da rosca
-ficava **maior que a soma dos setores desenhados** — em 12 meses, R$ 4.751 a mais, sem
-nada explicando de onde vinham. Corrigido: o total é a soma das fatias, e os dois buracos
-aparecem na linha de honestidade.
-
-Efeito colateral honesto: a cobertura de 12 meses **caiu de 89% para 71%**, porque o
-denominador passou a incluir os dois. A tela estava superestimando a própria confiabilidade.
-
-Total de 12 meses: **R$ 115.651**, idêntico ao SQL.
-
-### ⚠️ Regressão na ingestão: `data_compra` parou em maio
-
-| Período | Cartão com `data_compra` |
-|---|---|
-| até abr/26 | **89% a 96%** |
-| mai, jun, jul/26 | **0%** — nos três meses |
-
-O campo vem do parser do PDF da fatura. Desde maio o cartão entra por outro caminho e o
-dado não é mais gravado. **Não é bug das telas novas — o `dashboard.html` antigo tem as
-mesmas duas visões e vem degradando em silêncio há três meses.**
-
-A tela nova declara isso em vez de mostrar R$ 0,00 (que leria como "você não comprou"
-quando o certo é "não sei"). **Corrigir exige mexer no sync do cartão na VPS** — está na
-lista de pendências abaixo.
-
-**Bom sinal:** `Compras › Marketplace` ficou em **11,5%** dos últimos 12 meses. O risco
-registrado na spec §13 — o Marketplace virar o novo `Outros` de 31% — não se materializou.
-
-**Passo 8 — Início.** Número-herói é o custo de vida do mês (jul/26: **R$ 5.574**), com a
-faixa de incerteza logo abaixo (**+ até R$ 1.174**, 32 lançamentos) e atalho para Triar.
-Depois: para onde foi, por grupo; o que fugiu do padrão; e o fôlego como **menor card**.
-
-**A tela abre no mês mais recente COM DADO, não no mês do calendário.** Hoje é 06/08 e o
-último lançamento é de 28/07 — abrir em agosto mostraria R$ 0 e pareceria que ninguém
-gastou nada. O aviso diz qual mês está sendo mostrado e por quê.
-
-Fôlego: **2,3 meses**, com selo "patrimônio de 62 dias atrás". Como o CDB e o BTG são
-digitados à mão e somam 57% do patrimônio, o selo é requisito e não enfeite.
-
-### Dois falsos positivos corrigidos no detector de assinaturas
-
-A primeira versão anunciava como "cobrança nova recorrente":
-
-1. **Compras parceladas** (`SHOPEE *MISTERPROM 02/02`, `FILA BR CAUCAIA 03/04`) — uma
-   parcela aparece em meses seguidos **por construção**. É a mesma compra fatiada, não
-   uma cobrança que se repete. Agora `parcela` preenchida exclui o lançamento.
-2. **Uma assinatura de R$ 0,00.** Eu tinha escrito `med === 0 ||` na checagem de
-   tolerância para evitar divisão por zero — e com isso fiz **todo valor zero passar**.
-   A guarda contra divisão virou porta de entrada. Virou `valoresConstantes()`, com piso
-   de R$ 10 (`TRAVAS.assinaturaMinima`).
-
-Também exige **uma cobrança por mês**: duas compras no mesmo mês é frequência de
-restaurante, não de mensalidade.
-
-Depois disso o detector acha as assinaturas reais — TOTALPASS R$ 129,90, Google One
-R$ 119,98, Dom Cash Barber R$ 108,00, Netflix R$ 20,90 — e o card de julho fica só com o
-alerta de parcelas (**R$ 2.492,92 a vencer**).
-
-**Conferido contra SQL, não contra a própria tela:** em maio o JavaScript acusa Educação
-(21×) e Empresas (2,7×); o SQL dá exatamente os mesmos dois. Transporte, a 1,85×, não
-dispara em nenhum dos dois — a trava de 2× funciona.
-
-**Passo 7 — Triar.** Laço de aprendizado (Confirmar / corrigir / Pular), varredura
-retroativa em lote, cartão que não avança até a gravação confirmar. Fila de **656**.
-
-A varredura resolve **86**, não os 107 do plano original. Duas razões, ambas legítimas:
-129 itens da fila têm regra que casa, mas 27 dessas regras apontam para categorias de
-triagem e não resolveriam nada (só entra em lote o que a regra resolve **por completo**);
-e outros 16 saíram por causa do achado abaixo.
-
-### ⚠️ A armadilha da janela de 18 caracteres
-
-`regras.padrao` sai dos **18 primeiros caracteres** da descrição normalizada. Quando o
-banco antepõe texto burocrático longo, a janela se esgota **antes do nome do
-estabelecimento**:
-
+```bash
+cd C:\Users\Samsung\Documents\Claude\Projects\Pessoal\financas
+git checkout redesign
+python -m http.server 8777
 ```
-'Pagamento de Pix QR Code <QUALQUER LOJA>'  →  PAGAMENTODEPIXQRCO
-```
+Abrir `http://localhost:8777/inicio.html`. A sessão fica no `localStorage` do
+`localhost:8777`, então normalmente já está logado.
 
-Uma única regra com esse padrão mandava **63 estabelecimentos diferentes** (94
-lançamentos) para Farmácia. Dentro do lote ela propunha 16 itens de 12 lojas distintas.
+---
 
-**Duas providências, porque uma só não bastava:**
+## Estado das branches
 
-1. **A regra foi apagada** (06/08, autorizado pelo Juarez). O app não podia resolver isso
-   sozinho: quem aplica regra automaticamente é **o cron da VPS, do lado do servidor** —
-   blindagem de tela não o alcança. `regras` foi de 520 para **519**.
-2. **`M.regraEhGenerica()`** em `modelo.js`, para o problema não voltar com outro padrão.
-   O sinal **não** é "casa com muitas descrições" — `PAGUEMENOS` casa com 16 e está
-   certo. O sinal é que todas as descrições produzem a **mesma chave de 18 caracteres** e
-   ainda assim são estabelecimentos distintos: prova de que a janela nunca chegou ao que
-   diferencia. No lote elas aparecem **desmarcadas**, com o motivo à vista.
+| Branch | O que tem | No ar? |
+|---|---|---|
+| **`main`** | app antigo (`index.html`, `dashboard.html`) + **todas as migrações SQL** | ✅ GitHub Pages |
+| **`redesign`** | app novo: 12 telas + `assets/` + fontes | ❌ só local |
+| `redesign-nomad` | tentativa rejeitada em 05/08 | não mesclar |
 
-Os 4 lançamentos já classificados como Farmácia por essa regra **foram mantidos** — o
-Juarez confirmou que são farmácia mesmo (Pagaleve é o parcelamento que a Pague Menos usa
-no caixa; eu tinha suposto errado que fosse outra coisa).
+⚠️ **O banco é o MESMO para os dois apps.** Todas as migrações já estão aplicadas em
+produção. O app antigo continua funcionando porque lê `categoria` como texto, que o
+trigger mantém em sincronia com `categoria_id`.
 
-**Como abrir a tela:** `python -m http.server 8777` na raiz do repo, com a branch
-`redesign` ativa, e acessar `http://localhost:8777/triar.html`.
+---
 
-**Passo 6 — o trigger.** `trg_a_resolver_categoria` (em `transacoes` e em `regras`)
-resolve o texto que a VPS grava para `categoria_id`. **Nenhum script em `/root/financas/`
-foi alterado.**
+## O que existe no app novo
 
-Precisou de uma peça que não estava no plano: a tabela **`categoria_alias`** (69 linhas).
-A VPS classifica lendo `regras.categoria`, que é **texto antigo** (`Outros`,
-`Pix pessoas`, `Revenda/Materiais`), e o de-para que traduzia isso era uma tabela
-temporária da Fase 1b, destruída no fim da migração. Sem um de-para permanente, todo
-lançamento novo do cron cairia na fila **mesmo tendo regra que o classifica** — a fila se
-realimentaria sozinha, contra a meta de 8%.
+| Tela | Arquivo | Responde |
+|---|---|---|
+| Início | `inicio.html` | para onde foi meu dinheiro este mês? |
+| Triar | `triar.html` | o que falta classificar? |
+| Lançamentos | `lancamentos.html` | onde está aquele lançamento? |
+| Análise | `analise.html` | qual é o meu padrão ao longo do tempo? |
+| Mais | `mais.html` | hub |
+| Planejar | `planejar.html` | orçamento, patrimônio, fôlego · **só gestor** |
+| Empresas | `empresas.html` | elas se pagam? despesas e receitas de cada uma |
+| Parcelamento | `parcelamento.html` | o que já está comprometido |
+| Quem me deve | `emprestimos.html` | empréstimos e quanto voltou |
+| Receitas | `receitas.html` | o que entrou, de quem, de onde |
+| Assistente | `assistente.html` | perguntar em português |
+| Alterações | `alteracoes.html` | quem mudou o quê |
+| Categorias | `categorias.html` | criar, renomear, arquivar |
 
-Contrato do trigger, testado nos 8 cenários:
+Camada compartilhada em `assets/`: `modelo.js` (regras de negócio), `db.js` (auth, leitura
+paginada, cache), `ui.js` (nav, toast, estados, gráficos), `app.css` (tokens, tipografia).
+**`assets/_verificar.html` mede o que a spec afirma** — abrir logado, esperar 45/45.
 
-| Situação | Resultado |
-|---|---|
-| Nome novo (`Marketplace`) | resolve |
-| **Texto antigo da VPS (`Outros`)** | **resolve para Compras › Marketplace** |
-| Texto desconhecido | `categoria_id` nulo, texto preservado, vai pra fila |
-| Sem categoria | vai pra fila |
-| Grupo `Movimentação` | `cls` forçado para "Não é gasto" |
-| Usuário zera `categoria_id` (mandar pra triagem) | trigger **não** desfaz |
-| Usuário escolhe id que contradiz o texto | escolha vence, **e o texto passa a acompanhar o id** |
-| Regra nova com texto antigo | resolve |
+---
 
-O último item saiu de uma falha encontrada no teste: sem sincronizar o texto, toda
-reclassificação manual deixaria `texto='Outros'` com `id=Farmácia` — quebrando a coerência
-**e enganando o app antigo, que ainda lê o texto**. Agora o texto acompanha o id, então os
-dois apps mostram a mesma coisa durante a transição. O texto de origem está nos CSVs do
-passo 1.
+## O que falta
 
-⏳ **Verificação que só o tempo fecha:** conferir na manhã de **07/08** se o cron das 7h
-gravou normalmente. A VPS é deploy separado; erro lá fica invisível até o dia seguinte.
-Rodar `sql/verificacao.sql` depois do cron — os lançamentos novos devem aparecer **já com
-`categoria_id`**, não na fila.
+### 1. Fase B — as três ideias aprovadas (vindas do Firefly III)
 
-**Passo 5 — o que existe:** `assets/modelo.js` (regras de negócio), `db.js` (auth,
-leitura paginada, cache), `ui.js` (nav, toast, estados), `app.css` (tokens, tipografia),
-`fonts/` (DM Sans + DM Mono, trazidas da `redesign-nomad`) e **`assets/_verificar.html`**,
-que mede em vez de observar. Está na branch `redesign` — a `main` não mudou, o app no ar
-continua o antigo.
+| # | O quê | Por quê |
+|---|---|---|
+| B1 | **Anexo de fatura (PDF/imagem)** em Lançamentos e numa tela de importação | BTG, Nubank e InfinitePay não têm automação. Supabase Storage já está ativo |
+| B2 | **Motor de regras com condição + ação** | resolve estruturalmente a armadilha dos 18 caracteres. ⚠️ Exige mexer no sync da VPS, onde as regras são aplicadas |
+| B3 | **"Quem me deve" e empresas como contas a receber** | responde "quanto falta me pagarem" sem gambiarra de etiqueta |
 
-A única verificação não aprovada é a de cobertura, avisando que o teste de cache de ponta
-a ponta **não rodou por falta de login**. Ela reprova de propósito em vez de fingir que
-passou. Para fechá-la: subir `python -m http.server` na raiz do repo e abrir
-`assets/_verificar.html` **logado**.
+### 2. A virada de chave — três decisões do Juarez
 
-⚠️ **A view `transactions` precisou ser recriada** para expor `categoria_id` — ela lista
-colunas explicitamente e não enxergava a coluna nova. `security_invoker=on` preservado.
-A coluna entrou no fim da view (`create or replace view` recusa reordenar).
+1. **`index.html` vira porta de entrada** (login → `inicio.html`).
+   ⚠️ O `start_url` do manifest é `"."`: a raiz **tem** que continuar respondendo, senão
+   quebra os PWAs já instalados nos celulares.
+2. **O que fazer com `dashboard.html`** — o app novo cobre tudo que ele fazia, mas ele
+   continua lá.
+3. **Merge de `redesign` na `main`** — isso é o deploy; o Pages republica em ~1 min.
 
-⚠️ **Ponto em aberto — normalização de acento.** A VPS gera `regras.padrao` e não se sabe
-se ela derruba a letra acentuada (`E-Fácil` → `EFCIL`) ou a dobra para a base (`EFACIL`).
-O banco não desempata: as descrições do Itaú já chegam sem acento e nenhuma das 173
-acentuadas gerou regra. `modelo.js` calcula as duas e casa regra por qualquer uma, então
-divergência não esconde sugestão. **Confirmar em `/root/financas/` na próxima vez que
-mexer na VPS.**
+### 3. Pendências na VPS (`/root/financas/`)
 
-**Números depois da migração:**
+Só se resolvem lá, e nenhuma é urgente:
+
+| # | O quê | Impacto |
+|---|---|---|
+| V1 | **`data_compra` parou de ser gravado em mai/26** | até abr/26 a cobertura era 89–96%; em mai, jun e jul é **zero**. A visão "pela data da compra" só funciona para abr/26 e antes. Afeta o `dashboard.html` antigo também, há três meses |
+| V2 | **Confirmar a normalização de acento** que gera `regras.padrao` | o front calcula as duas hipóteses porque não dá para saber daqui |
+| V3 | **A janela de 18 caracteres** de `regras.padrao` | curta demais quando o banco antepõe texto burocrático. Foi o que criou a regra que mandava 63 estabelecimentos para Farmácia |
+
+### 4. Verificação que só o tempo fecha
+
+⏳ **Conferir se o cron das 7h gravou normalmente** depois do trigger da Fase 2. Rodar
+`sql/verificacao.sql`: os lançamentos novos devem aparecer **já com `categoria_id`**, não
+na fila. Se algo der errado, o rollback é `drop trigger` — o app antigo volta sozinho,
+porque nunca deixou de ler o texto.
+
+### 5. Pendências do Juarez
+
+1. **Atualizar CDB e BTG** no patrimônio (Mais › Planejar). Parados há 62 dias, e são 57%
+   do total — o fôlego de 2,3 meses é estimativa enquanto isso.
+2. **Testar a Fase A** e dizer o que incomoda.
+
+---
+
+## Decisões tomadas — não reabrir sem motivo novo
+
+| Decisão | Escolha | Onde |
+|---|---|---|
+| Critério de sucesso | clareza primeiro, custo de atenção baixo | spec §1 |
+| Alvo numérico | sem classificação **< 8% até 30/09/2026** (hoje 19,9%) | spec §1 |
+| Navegação | 5 itens, **idêntica para os dois papéis**; o resto em Mais | spec §3 |
+| Eixo de análise | **grupo**, com drill-down | spec §4 |
+| Fase 3 da migração | **cortada** — era a única operação irreversível | spec §6 |
+| Fila de triagem | **uma só**, de 656 | spec §4 |
+| Rótulos | Da casa · Do Juarez · Da Raiane · Clínica · Emprestado · Não conta · A classificar | spec §4 |
+| Backend | **continua Supabase.** Firefly III avaliado e descartado | ver abaixo |
+| Gráficos | **SVG puro, sem Chart.js** — CDN quebraria o app offline | — |
+
+### Por que o Firefly III foi descartado (06/08)
+
+Sugerido como "motor" por trás do app. Três motivos concretos:
+
+1. **O RLS morre.** Toda a proteção é row-level: a Raiane vê tudo **menos** OQV e contas
+   PJ, e o patrimônio é só do gestor. O Firefly é uma conta por pessoa; reproduzir isso
+   exigiria duas instâncias ou refazer o filtro à mão.
+2. **A dupla entrada não encaixa.** Exige conta de origem **e** destino em cada
+   transação; compra no cartão via Open Finance não tem isso.
+3. **Custo de operação** — mais um serviço PHP para atualizar, fazer backup e manter
+   seguro, contra uma spec que declarou "nada de novo será provisionado".
+
+O **Maybe Finance foi arquivado em 27/07/2025** e não é mais mantido — serve como
+referência de modelagem, não como dependência.
+
+---
+
+## Armadilhas — todas custaram caro pelo menos uma vez
+
+1. **O repositório é PÚBLICO.** Nunca commitar CSV de lançamento, `service_role` ou
+   extrato. A anon key no HTML é pública por design; o resto não.
+2. **PostgREST corta SELECT em 1.000 linhas.** Sempre paginar (`DB.lerTudo` já faz).
+3. **A lista renderiza no máximo 200 linhas.** Sem o corte são ~50 mil nós de DOM e o
+   celular trava. Os **totais** rodam sobre o filtro inteiro, não sobre o desenhado.
+4. **`font-size: 16px` em todo campo**, alvo de toque 44px. Abaixo disso o Safari do
+   iPhone dá zoom a cada foco.
+5. **Nunca escrever policy com `auth.uid() IS NOT NULL`** — é "qualquer um que criou
+   conta", não "a família". Usar `eh_membro()` e `is_admin()`.
+6. **DM Sans desalinha coluna de dinheiro** (números proporcionais, ignora
+   `tabular-nums`). Valor em coluna usa **DM Mono**; número-herói segue em DM Sans.
+7. **Regra por prefixo curto é veneno.** As 119 regras `SHOPEE*` cobrem 6 categorias e 5
+   classificações, incluindo OQV, Rai Móveis e Slim Fit — uma regra `SHOPEE` genérica
+   reclassificaria compras das empresas como gasto pessoal. `M.regraEhGenerica()` protege
+   o lote, mas **o cron da VPS não passa por ela**.
+8. **Compra parcelada aparece em meses seguidos por construção.** Não é assinatura, e
+   contá-la como tal enche o card de anomalias de lixo.
+9. **`metas.categoria` é PRIMARY KEY** e o `dashboard.html` antigo depende dela. Por isso
+   `grupo` espelha `categoria` em vez de substituí-la.
+10. **`index.html` é a porta de entrada** e o `start_url` do manifest é `"."`. Mudar quebra
+    os PWAs instalados.
+
+---
+
+## Números do sistema em 06/08/2026
 
 | | |
 |---|---|
-| Transações | 3.132 · zero perdidas |
-| `Compras › Marketplace` | **355** (os antigos `Outros`) |
-| Fila de triagem | **656** — 620 sem categoria, 623 sem `cls`, união 656 |
-| Regras sem categoria | 27 (todas intencionais: `Indefinido`, `Internacional`, `Serviços`…) |
-| `cls` corrigidos para "Não é gasto" | 13 (12 `Desconto` + 1 `Estorno`) |
-
-⚠️ **A `main` do GitHub Pages ainda serve o app ANTIGO** — ele lê `categoria` como texto,
-que continua intacto, então nada quebrou para vocês. A Fase 2 (front lendo `categoria_id`)
-é o passo 6.
-
----
-
-## O que foi feito em 06/08/2026 — revisão da spec
-
-Revisão bloco a bloco da spec com o Juarez. Seis decisões, três delas vindas de números
-medidos no banco durante a sessão.
-
-### Decisões
-
-| # | Decisão | Motivo |
-|---|---|---|
-| 1 | **Planejar mora dentro de "Mais"** | a barra tinha 5 itens e 8 telas; promovê-la exigiria barra variando por papel (a Raiane não vê Planejar), e 6 itens apertariam os alvos de 44px |
-| 2 | **Alvo numérico: sem classificação < 8% até 30/09/2026** | hoje 19,9%. Único número que diz se o redesign funcionou |
-| 3 | **Fase 3 da migração cortada** | única operação irreversível do plano, em banco free sem PITR, por ganho cosmético. Texto e `categoria_id` convivem para sempre |
-| 4 | **Trigger com comportamento definido** | texto desconhecido da VPS → `categoria_id` nulo, texto preservado, vai pra fila. Nunca cria categoria |
-| 5 | **Rótulos leves aprovados** | Da casa · Do Juarez · Da Raiane · Clínica · Emprestado · Não conta · **A classificar** |
-
-### O achado do dia: `Outros` era marketplace
-
-Ao quebrar a spec em plano, a pesquisa foi ver **por que** `Outros` era 31% de julho. As
-**132 regras** que classificavam para lá: `AMAZONBR` (79 usos), ~100 padrões `SHOPEE…`
-(um por vendedor!), `MERCADOLIVRE…`. **128 de 132 são marketplace.**
-
-`Outros` nunca foi bagunça — era **marketplace sem nome**. Virou o grupo **`Compras`**
-(Marketplace · Eletrônicos · Presente), o "General Merchandise" do Plaid.
-
-| | Antes | Depois |
-|---|---|---|
-| Dívida histórica que iria pra fila | 388 | **33** |
-| Fila total pós-migração | 1.011 | **656** |
-| Regras de marketplace | 128 superajustadas | **3** por prefixo |
-| Telas de fila a construir | 2 | **1** |
-
-Isso **reverteu a decisão das duas filas**: elas existiam para proteger de uma fila de
-388, e o número deixou de existir.
-
-**Lição:** classificar direito a categoria mais volumosa vale mais que qualquer
-engenharia de interface em cima da bagunça.
-
-### ⚠️ Correção importante: NÃO consolidar regras por prefixo
-
-A ideia de fundir as ~128 regras de marketplace em 3 (`SHOPEE`, `AMAZON`,
-`MERCADOLIVRE`) chegou a ser aprovada — e estava **errada**. Ao implementar, medi as
-regras `SHOPEE*` inteiras, não só as que apontavam para `Outros`:
-
-| Prefixo | Regras | Categorias | `cls` distintos |
-|---|---|---|---|
-| **`SHOPEE`** | **119** | 6 | **5** — inclui **OQV, Rai Móveis, Slim Fit** |
-| `MERCADOPAGO` | 7 | 2 | 2 — inclui Rai Móveis |
-
-Uma regra `SHOPEE` genérica reclassificaria compras das empresas como gasto pessoal da
-família — **destruindo a separação PF/PJ** que a blindagem de RLS de 05/08 protegeu.
-
-**As regras por vendedor não são superajustadas: elas guardam qual vendedor pertence a
-qual negócio.** Só a categoria foi remapeada; todos os 520 padrões foram preservados.
-O erro de origem foi tirar conclusão de 132 regras sem olhar as outras 119.
-
-### Outros achados da pesquisa
-
-| Achado | Consequência |
-|---|---|
-| O de-para cobria só `transacoes` — **8 categorias órfãs em `regras`**, uma com **54 regras** (`Pix pessoas`) | 2 subs novas; asserção obrigatória nas duas tabelas |
-| 3 categorias mandadas para "Não conta" eram **dinheiro real**: R$ 129 mil de receita (recebível + dividendos da sociedade antiga) e R$ 746 de gasto (`Internacional`) | grupo `Receitas` criado; `Internacional` vai pra triagem |
-| Taxonomia final | **11 grupos, 47 subcategorias** (era "9 grupos, ~38 subs") |
-
-### Números medidos na sessão (não são estimativa)
-
-| | |
-|---|---|
-| Pendentes que casam com regra existente | **107** de 623 — a varredura retroativa se confirma |
-| Fila única pós-migração | **656** (623 + 33) |
-| `Compras › Marketplace` | **355** lançamentos (os antigos `Outros`) |
-
-### Open Finance — CDB verificado ✅ (pendência antiga, resolvida)
-
-A API devolve **uma única conta**: a corrente do Itaú. **O CDB não vem e não virá.**
-
-| Linha de `patrimonio` | Registrado (05/06) | Fonte daqui pra frente |
-|---|---|---|
-| Conta corrente Itaú | R$ 9.261,99 | **automática** (diária, balde barato) |
-| CDB Itaú | R$ 7.365,79 | manual |
-| BTG (garantia do cartão) | R$ 12.000,00 | manual |
-
-Saldo real da conta em 06/08 às 14:10: **R$ 12.778,44** — R$ 3.516 acima do registrado.
-A automação cobre 1 das 3 linhas; as duas manuais são 57% do patrimônio. Por isso o
-**alerta de 30 dias virou requisito**, não acabamento.
+| `transacoes` | 3.132 · mai/25 a jul/26 |
+| Fila de triagem | **656** (620 sem categoria, 623 sem `cls`, união 656) |
+| Destes, resolvíveis em lote | **86** |
+| `categorias` | **54 subcategorias em 12 grupos** |
+| `regras` | **519** (era 520; a `PAGAMENTODEPIXQRCO` foi apagada) |
+| `categoria_alias` | 69 — de-para permanente que o trigger usa |
+| `metas` | **0** — orçamento ainda não criado |
+| `patrimonio` | 3 linhas · R$ 16.628 líquido · **parado há 62 dias** |
+| Custo de vida jul/26 | R$ 5.574 + até R$ 1.174 sem classificar |
+| Custo de vida 12 meses | R$ 120.402 (R$ 115.651 classificado por grupo) |
+| Receita 12 meses | R$ 123.095 |
+| Parcelas comprometidas | **R$ 24.387** · 146 compras · ago/26 estoura o teto |
+| Empresas, 12 meses | **−R$ 36.326** — a família banca a diferença |
+| Piso de sobrevivência | R$ 3.209/mês de fixo |
 
 ---
 
-## Decisões anteriores (05/08/2026) — não reabrir sem motivo novo
+## Documentos
 
-| Decisão | Escolha |
-|---|---|
-| Critério de sucesso | **(b) clareza** primeiro, **(d) custo de atenção baixo** |
-| Tela inicial | **opção C adaptada** — lidera com clareza e declara a incerteza |
-| Eixo principal | **categoria**, em 2 níveis (9 grupos › ~38 subs) |
-| Eixo secundário | classificação, com rótulos mais leves |
-| Padrão de Análise e orçamento | **grupo** (9), com drill-down |
-| Fatia "a classificar" no gráfico | **opção C** — rosca limpa + linha de honestidade |
-| Patrimônio | automatizar o Itaú pelo sync; manual o resto |
-| Arquitetura | **vários HTML sem build** + `assets/` compartilhado |
-
-O que já está **no ar** desde 05/08: blindagem de RLS (`28aaf8b`) e as melhorias de base
-da UI — paginação, alvos de toque, contraste (`e38fe5b`).
-
----
-
-## Próximo passo
-
-**Passo 1 do plano: export CSV.** O plano completo, com contexto próprio por passo, está
-em [`plans/redesign-financas.md`](../plans/redesign-financas.md):
-
-| # | Passo | |
-|---|---|---|
-| 1 | Export CSV de `transacoes` e `regras` | rede de segurança — plano free, sem PITR |
-| 2 | Fase 1a: `categorias` + seed (11 grupos, 47 subs) + RLS | |
-| 3 | Fase 1b: `categoria_id` + backfill + **consolidação das 128 regras de marketplace** | passo mais delicado |
-| 4 | `sql/verificacao.sql` | única validação do projeto |
-| 5 | `assets/` — modelo.js, db.js, ui.js, app.css | cache é obrigatório |
-| 6 | Fase 2: trigger + front lendo por `categoria_id` | VPS não muda |
-| 7–10 | Telas: Triar → Início → Análise → resto | |
-
-⚠️ Não começar pelas telas. Tela sem taxonomia consolidada é retrabalho garantido.
-
-> A v1.0 apontava `/break` como próximo comando. **Esse comando não existe** nesta
-> instalação do Claude Code — o plano foi gerado com o skill `blueprint`.
-
----
-
-## Pendências na VPS (`/root/financas/`)
-
-Nenhuma delas é urgente, mas as três só se resolvem lá:
-
-1. **`data_compra` parou de ser gravado em mai/26** (ver passo 9). Enquanto isso, a visão
-   "pela data da compra" só funciona para abr/26 e antes.
-2. **Confirmar a normalização de acento** usada para gerar `regras.padrao` — o front
-   calcula as duas hipóteses porque não dá para saber daqui.
-3. **A janela de 18 caracteres** de `regras.padrao` é curta demais quando o banco antepõe
-   texto burocrático. Foi o que criou a regra que mandava 63 estabelecimentos para
-   Farmácia. Aumentar a janela, ou remover prefixos conhecidos antes de cortar, resolveria
-   a classe inteira do problema.
-
-## Pendências do Juarez
-
-1. **Atualizar CDB e BTG** no patrimônio (a conta corrente passa a vir sozinha).
-   Parado desde 05/06 — o fôlego de 1,8 meses ainda não é confiável.
-2. **Gerar as telas no Google Stitch** a partir de [`stitch-prompts.md`](stitch-prompts.md)
-   — os prompts ainda refletem a v1.0 e precisam ser atualizados (Planejar em Mais,
-   duas filas, rótulos novos) antes de serem usados.
-
----
-
-## Estado do repositório
-
-| Branch | Situação |
-|---|---|
-| `main` | segurança + UI de base + documentação. **No ar** no GitHub Pages |
-| `redesign-nomad` | redesign rejeitado em 05/08. Preservado, **não mesclar** |
-
-Documentos em `docs/`:
-
-- **`spec.md`** — a especificação aprovada (v1.2) ⭐
-- **`../plans/redesign-financas.md`** — o plano de construção, 10 passos ⭐
-- `taxonomia-categorias.md` — os 9 grupos e o de-para das 73 categorias
-- `stitch-prompts.md` — prompts para gerar as telas (⚠️ desatualizados, ver pendência 2)
-- `architecture.md` · `workflow.md` · `README.md` — o sistema como ele é hoje
-- `mockups/` — artefatos visuais das decisões
+- **`docs/spec.md`** — a especificação aprovada (v1.2) ⭐
+- **`plans/redesign-financas.md`** — o plano de construção, 10 passos + Fase A/B ⭐
+- `docs/taxonomia-categorias.md` — os 12 grupos e o de-para completo
+- `docs/architecture.md` · `docs/workflow.md` · `README.md`
+- `sql/verificacao.sql` — **21 asserções**, rodar depois de cada mudança de banco
+- `sql/2026-08-0*.sql` — as migrações, na ordem
 
 ⚠️ O `CLAUDE.md` do projeto mora **fora do repositório**, em
-`C:\Users\Samsung\Documents\Claude\Projects\Pessoal\CLAUDE.md`. Ele continua sendo o
-contexto que o Claude Code carrega automaticamente; os documentos técnicos canônicos
-são os daqui.
+`C:\Users\Samsung\Documents\Claude\Projects\Pessoal\CLAUDE.md`.
+
+---
+
+## Diário — o que aconteceu em 06/08/2026
+
+Um dia inteiro. Da revisão da spec até a paridade completa do app novo.
+
+**Revisão da spec (v1.0 → v1.2).** Seis decisões, e três achados medidos no banco
+derrubaram premissas: o de-para cobria só `transacoes` e deixava 8 categorias órfãs em
+`regras` (uma com 54 regras); três categorias mandadas para "Não conta" eram dinheiro real
+(R$ 129 mil de receita); e **`Outros` era marketplace** — 128 das 132 regras que
+apontavam para lá eram Amazon, Shopee e Mercado Livre. Isso virou o grupo `Compras`, e a
+dívida histórica caiu de 388 para 33, dissolvendo a necessidade de duas filas.
+
+**Migração em 2 fases**, ambas reversíveis. A Fase 3 destrutiva foi cortada.
+
+**Trigger da Fase 2** com a tabela `categoria_alias`, que não estava no plano: a VPS grava
+texto antigo e o de-para era temporário. Sem ele, todo lançamento novo cairia na fila
+mesmo tendo regra.
+
+**Sete telas construídas**, depois mais cinco para fechar a paridade.
+
+**Erros meus, encontrados e corrigidos:** `montarNav()` empilhava barras em vez de
+substituir; o total da Análise não era a soma das fatias; a checagem de tolerância fazia
+valor zero passar; compras parceladas viravam "assinatura nova"; devedores sem nome eram
+somados numa linha só e uma dívida de R$ 300 aparecia como quitada; e o item OQV do Mais
+apontava para um arquivo que eu nunca criei.
+
+**Uma regra apagada com autorização:** `PAGAMENTODEPIXQRCO` mandava 63 estabelecimentos
+diferentes para Farmácia.
+
+**Uma regressão de ingestão descoberta:** `data_compra` parou em maio, degradando em
+silêncio o `dashboard.html` há três meses.
