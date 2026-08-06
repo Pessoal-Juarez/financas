@@ -22,7 +22,47 @@ Spec aprovada (v1.2), plano de construção escrito
 | 4 | `sql/verificacao.sql` | ✅ **15/15 PASSOU** |
 | 5 | Camada `assets/` + fontes | ✅ na branch **`redesign`** · **40/41** em `assets/_verificar.html` |
 | 6 | Fase 2 — trigger de resolução | ✅ aplicado · 8 cenários testados · 21/21 no `verificacao.sql` |
-| 7–10 | Telas | pendente |
+| 7 | **Tela Triar** | ✅ na branch `redesign` · verificada no navegador com sessão real |
+| 8–10 | Início, Análise, resto | pendente |
+
+**Passo 7 — Triar.** Laço de aprendizado (Confirmar / corrigir / Pular), varredura
+retroativa em lote, cartão que não avança até a gravação confirmar. Fila de **656**.
+
+A varredura resolve **86**, não os 107 do plano original. Duas razões, ambas legítimas:
+129 itens da fila têm regra que casa, mas 27 dessas regras apontam para categorias de
+triagem e não resolveriam nada (só entra em lote o que a regra resolve **por completo**);
+e outros 16 saíram por causa do achado abaixo.
+
+### ⚠️ A armadilha da janela de 18 caracteres
+
+`regras.padrao` sai dos **18 primeiros caracteres** da descrição normalizada. Quando o
+banco antepõe texto burocrático longo, a janela se esgota **antes do nome do
+estabelecimento**:
+
+```
+'Pagamento de Pix QR Code <QUALQUER LOJA>'  →  PAGAMENTODEPIXQRCO
+```
+
+Uma única regra com esse padrão mandava **63 estabelecimentos diferentes** (94
+lançamentos) para Farmácia. Dentro do lote ela propunha 16 itens de 12 lojas distintas.
+
+**Duas providências, porque uma só não bastava:**
+
+1. **A regra foi apagada** (06/08, autorizado pelo Juarez). O app não podia resolver isso
+   sozinho: quem aplica regra automaticamente é **o cron da VPS, do lado do servidor** —
+   blindagem de tela não o alcança. `regras` foi de 520 para **519**.
+2. **`M.regraEhGenerica()`** em `modelo.js`, para o problema não voltar com outro padrão.
+   O sinal **não** é "casa com muitas descrições" — `PAGUEMENOS` casa com 16 e está
+   certo. O sinal é que todas as descrições produzem a **mesma chave de 18 caracteres** e
+   ainda assim são estabelecimentos distintos: prova de que a janela nunca chegou ao que
+   diferencia. No lote elas aparecem **desmarcadas**, com o motivo à vista.
+
+Os 4 lançamentos já classificados como Farmácia por essa regra **foram mantidos** — o
+Juarez confirmou que são farmácia mesmo (Pagaleve é o parcelamento que a Pague Menos usa
+no caixa; eu tinha suposto errado que fosse outra coisa).
+
+**Como abrir a tela:** `python -m http.server 8777` na raiz do repo, com a branch
+`redesign` ativa, e acessar `http://localhost:8777/triar.html`.
 
 **Passo 6 — o trigger.** `trg_a_resolver_categoria` (em `transacoes` e em `regras`)
 resolve o texto que a VPS grava para `categoria_id`. **Nenhum script em `/root/financas/`
