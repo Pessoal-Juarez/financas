@@ -106,6 +106,47 @@ with a as (
   union all select 15, 'Tabela auxiliar depara_tmp removida',
          (select count(*) from information_schema.tables
            where table_schema='public' and table_name='depara_tmp')::text, '0'
+
+  -- 10. Fase 2 — o trigger que resolve o texto da VPS
+  union all select 16, 'Trigger ativo em transacoes',
+         (select count(*) from pg_trigger where tgrelid='public.transacoes'::regclass
+           and tgname='trg_a_resolver_categoria' and not tgisinternal)::text, '1'
+
+  union all select 17, 'Trigger ativo em regras',
+         (select count(*) from pg_trigger where tgrelid='public.regras'::regclass
+           and tgname='trg_a_resolver_categoria_regra' and not tgisinternal)::text, '1'
+
+  union all select 18, 'RLS ligado em categoria_alias',
+         (select relrowsecurity from pg_class where oid='public.categoria_alias'::regclass)::text, 'true'
+
+  -- A asserção que realmente importa da Fase 2: simula o trigger sobre TODO
+  -- texto que já existe nas duas tabelas e confirma que os únicos que não
+  -- resolvem são os 9 da lista de triagem. Contar linhas do de-para seria
+  -- asserção fraca — o que precisa valer é COBERTURA.
+  union all select 19, 'Textos que o trigger não resolve (só os de triagem)',
+         (select count(*) from (
+            select distinct btrim(categoria) as txt from transacoes where btrim(coalesce(categoria,''))<>''
+            union
+            select distinct btrim(categoria) from regras where btrim(coalesce(categoria,''))<>''
+          ) t
+          where coalesce(
+            (select c.id from categorias c where c.nome=t.txt and c.ativa order by c.ordem limit 1),
+            (select a.categoria_id from categoria_alias a where a.alias=t.txt)
+          ) is null)::text, '9'
+
+  union all select 20, 'Nenhum texto de triagem resolve por engano',
+         (select count(*) from (values
+            ('Indefinido'),('Clínica?'),('Locação (não confirmado)'),('Receita a identificar'),
+            ('Serviços'),('Despesa OQV'),('Loja esposa'),('Internacional'),
+            ('Cartão (fatura não detalhada)')
+          ) as f(txt)
+          where coalesce(
+            (select c.id from categorias c where c.nome=f.txt and c.ativa order by c.ordem limit 1),
+            (select a.categoria_id from categoria_alias a where a.alias=f.txt)
+          ) is not null)::text, '0'
+
+  union all select 21, 'Nenhuma linha de teste sobrou no banco',
+         (select count(*) from transacoes where ext_id like 'TESTE-%')::text, '0'
 )
 select ord as "#",
        ascerto.assercao,
