@@ -21,7 +21,43 @@ Spec aprovada (v1.2), plano de construção escrito
 | 3 | `categoria_id` + backfill nas duas tabelas | ✅ aplicado |
 | 4 | `sql/verificacao.sql` | ✅ **15/15 PASSOU** |
 | 5 | Camada `assets/` + fontes | ✅ na branch **`redesign`** · **40/41** em `assets/_verificar.html` |
-| 6–10 | Fase 2 (trigger) e telas | pendente |
+| 6 | Fase 2 — trigger de resolução | ✅ aplicado · 8 cenários testados · 21/21 no `verificacao.sql` |
+| 7–10 | Telas | pendente |
+
+**Passo 6 — o trigger.** `trg_a_resolver_categoria` (em `transacoes` e em `regras`)
+resolve o texto que a VPS grava para `categoria_id`. **Nenhum script em `/root/financas/`
+foi alterado.**
+
+Precisou de uma peça que não estava no plano: a tabela **`categoria_alias`** (69 linhas).
+A VPS classifica lendo `regras.categoria`, que é **texto antigo** (`Outros`,
+`Pix pessoas`, `Revenda/Materiais`), e o de-para que traduzia isso era uma tabela
+temporária da Fase 1b, destruída no fim da migração. Sem um de-para permanente, todo
+lançamento novo do cron cairia na fila **mesmo tendo regra que o classifica** — a fila se
+realimentaria sozinha, contra a meta de 8%.
+
+Contrato do trigger, testado nos 8 cenários:
+
+| Situação | Resultado |
+|---|---|
+| Nome novo (`Marketplace`) | resolve |
+| **Texto antigo da VPS (`Outros`)** | **resolve para Compras › Marketplace** |
+| Texto desconhecido | `categoria_id` nulo, texto preservado, vai pra fila |
+| Sem categoria | vai pra fila |
+| Grupo `Movimentação` | `cls` forçado para "Não é gasto" |
+| Usuário zera `categoria_id` (mandar pra triagem) | trigger **não** desfaz |
+| Usuário escolhe id que contradiz o texto | escolha vence, **e o texto passa a acompanhar o id** |
+| Regra nova com texto antigo | resolve |
+
+O último item saiu de uma falha encontrada no teste: sem sincronizar o texto, toda
+reclassificação manual deixaria `texto='Outros'` com `id=Farmácia` — quebrando a coerência
+**e enganando o app antigo, que ainda lê o texto**. Agora o texto acompanha o id, então os
+dois apps mostram a mesma coisa durante a transição. O texto de origem está nos CSVs do
+passo 1.
+
+⏳ **Verificação que só o tempo fecha:** conferir na manhã de **07/08** se o cron das 7h
+gravou normalmente. A VPS é deploy separado; erro lá fica invisível até o dia seguinte.
+Rodar `sql/verificacao.sql` depois do cron — os lançamentos novos devem aparecer **já com
+`categoria_id`**, não na fila.
 
 **Passo 5 — o que existe:** `assets/modelo.js` (regras de negócio), `db.js` (auth,
 leitura paginada, cache), `ui.js` (nav, toast, estados), `app.css` (tokens, tipografia),
