@@ -1,0 +1,218 @@
+/* =====================================================================
+   app.css — tokens, tipografia, componentes e navegação
+
+   Os tokens de cor vêm do index.html atual, onde o contraste já tinha
+   sido corrigido em 05/08 (--muted era 3,10:1 sobre branco, reprovando
+   no WCAG AA; #5c6675 dá 5,81:1 e continua discreto).
+   ===================================================================== */
+
+/* ------------------------------------------------------------------
+   Fontes — auto-hospedadas, funcionam offline no PWA
+   ------------------------------------------------------------------ */
+@font-face {
+  font-family: 'DM Sans'; font-style: normal; font-weight: 400 700;
+  font-display: swap; src: url('../fonts/dmsans-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+20AC, U+2122;
+}
+@font-face {
+  font-family: 'DM Sans'; font-style: normal; font-weight: 400 700;
+  font-display: swap; src: url('../fonts/dmsans-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-024F, U+1E00-1EFF, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Mono'; font-style: normal; font-weight: 400 500;
+  font-display: swap; src: url('../fonts/dmmono-latin.woff2') format('woff2');
+}
+
+:root {
+  color-scheme: light;
+  --bg:#f4f6f9; --card:#fff; --text:#1a2230; --muted:#5c6675; --th:#5c6675;
+  --border:#e6e9ef; --border2:#eef1f6; --field:#d4dae6; --field2:#e1e6ef;
+  --input-bg:#fff; --row-ind:#fdeef0; --row-pend:#fff7e6;
+  --badge-bg:#ffe1b0; --badge-fg:#a35a00;
+  --perigo:#d23f3f; --ok:#0f9d58; --acento:#2f6df0;
+  --shadow:0 1px 3px rgba(20,30,60,.04);
+  --ease:cubic-bezier(.32,.72,0,1); --dur:160ms;
+  --alvo:44px;          /* alvo de toque mínimo — não reduzir */
+  --raio:12px;
+  --nav-h:64px;
+}
+:root[data-theme="light"]{ color-scheme: light; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:#0f141b; --card:#1a2230; --text:#e7ebf0; --muted:#97a2b2; --th:#9aa3b2;
+  --border:#2a3442; --border2:#232c38; --field:#3a4757; --field2:#33404f;
+  --input-bg:#222c38; --row-ind:#36222e; --row-pend:#37331f;
+  --badge-bg:#574321; --badge-fg:#ffd591;
+  --shadow:0 1px 3px rgba(0,0,0,.35);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    color-scheme: dark;
+    --bg:#0f141b; --card:#1a2230; --text:#e7ebf0; --muted:#97a2b2; --th:#9aa3b2;
+    --border:#2a3442; --border2:#232c38; --field:#3a4757; --field2:#33404f;
+    --input-bg:#222c38; --row-ind:#36222e; --row-pend:#37331f;
+    --badge-bg:#574321; --badge-fg:#ffd591;
+    --shadow:0 1px 3px rgba(0,0,0,.35);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  /* Espaço para a barra fixa + a área segura do iPhone. */
+  padding: 0 0 calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 12px);
+  background: var(--bg); color: var(--text);
+  font-family: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px; line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ------------------------------------------------------------------
+   Tipografia de dinheiro
+   ------------------------------------------------------------------
+   Medido em 05/08/2026: DM Sans tem números PROPORCIONAIS e ignora
+   `font-variant-numeric: tabular-nums` — "1111111111" ocupa 103px e
+   "0000000000" ocupa 268px. Numa coluna de dinheiro isso desalinha.
+   DM Mono dá 240px nos dois casos.
+
+   Número-herói continua em DM Sans: é UM número, não uma coluna. */
+.valor, td.valor, .col-valor {
+  font-family: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  text-align: right; white-space: nowrap;
+}
+.heroi {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: clamp(2rem, 9vw, 2.75rem); font-weight: 700;
+  letter-spacing: -.02em; line-height: 1.1; margin: 0;
+}
+.heroi-sub { color: var(--muted); font-size: .9375rem; margin: 4px 0 0; }
+.negativo { color: var(--perigo); }
+.positivo { color: var(--ok); }
+
+/* Modo privado (olho): esconde valor sem mudar o layout. */
+.privado .valor, .privado .heroi, .privado .sensivel {
+  filter: blur(7px); user-select: none;
+}
+
+/* ------------------------------------------------------------------
+   Blocos
+   ------------------------------------------------------------------ */
+.envolucro { max-width: 720px; margin: 0 auto; padding: 16px 16px 0; }
+.cartao {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--raio); box-shadow: var(--shadow);
+  padding: 16px; margin-bottom: 12px;
+}
+.cabecalho {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 12px 16px 0; max-width: 720px; margin: 0 auto;
+}
+.titulo { font-size: 1.125rem; font-weight: 700; margin: 0; }
+.mudo { color: var(--muted); font-size: .875rem; }
+.frescor { color: var(--muted); font-size: .8125rem; }
+
+/* ------------------------------------------------------------------
+   Controles — 44px de alvo e 16px de fonte não são negociáveis
+   ------------------------------------------------------------------
+   Abaixo de 16px o Safari do iPhone dá zoom a cada foco do campo. */
+.btn, button.btn {
+  min-height: var(--alvo); padding: 0 16px;
+  font: inherit; font-size: 1rem; font-weight: 600;
+  border-radius: 10px; border: 1px solid var(--acento);
+  background: var(--acento); color: #fff; cursor: pointer;
+  transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+.btn:active { transform: scale(.98); }
+.btn.alt { background: var(--card); color: var(--text); border-color: var(--field); }
+.btn.perigo { background: var(--perigo); border-color: var(--perigo); }
+.btn:disabled { opacity: .5; cursor: default; }
+
+select, input, textarea {
+  min-height: var(--alvo);
+  font: inherit; font-size: 16px;   /* nunca abaixar */
+  color: var(--text); background: var(--input-bg);
+  border: 1px solid var(--field); border-radius: 10px;
+  padding: 0 12px; max-width: 100%;
+}
+select.cls { border-left-width: 4px; }
+
+:where(a, button, select, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--acento); outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------
+   Navegação inferior — 5 itens iguais para os dois papéis
+   ------------------------------------------------------------------ */
+.nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  background: var(--card); border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.nav-item {
+  min-height: var(--nav-h);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; text-decoration: none; color: var(--muted); font-size: .75rem;
+}
+.nav-item.ativo { color: var(--acento); font-weight: 600; }
+.nav-icone { position: relative; font-size: 1.25rem; line-height: 1; }
+.nav-rotulo { line-height: 1; }
+/* Contador só em Triar. Nenhum outro item tem badge — a dívida antiga não
+   cobra (spec §4). */
+.nav-badge {
+  position: absolute; top: -6px; left: 100%; transform: translateX(-40%);
+  background: var(--perigo); color: #fff; font-size: .625rem; font-weight: 700;
+  min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ------------------------------------------------------------------
+   Estados — esqueleto, vazio, erro
+   ------------------------------------------------------------------ */
+.esq-linha { display: flex; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--border2); }
+.esq {
+  flex: 1; height: 14px; border-radius: 7px;
+  background: linear-gradient(90deg, var(--border2), var(--border), var(--border2));
+  background-size: 200% 100%; animation: brilho 1.4s linear infinite;
+}
+@keyframes brilho { to { background-position: -200% 0; } }
+
+.estado { text-align: center; padding: 32px 16px; }
+.estado-titulo { font-weight: 700; margin: 0 0 4px; }
+.estado-texto { color: var(--muted); margin: 0 0 16px; }
+.estado.erro .estado-titulo { color: var(--perigo); }
+
+/* ------------------------------------------------------------------
+   Toast
+   ------------------------------------------------------------------ */
+.toast {
+  position: fixed; left: 50%; z-index: 40;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 16px);
+  transform: translate(-50%, 12px);
+  background: var(--text); color: var(--bg);
+  padding: 12px 16px; border-radius: 10px; font-size: .9375rem;
+  max-width: calc(100vw - 32px); opacity: 0; pointer-events: none;
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.toast.visivel { opacity: 1; transform: translate(-50%, 0); }
+.toast.erro { background: var(--perigo); color: #fff; }
+
+/* ------------------------------------------------------------------
+   Linha de honestidade — o app declara sua própria incerteza (spec §1)
+   ------------------------------------------------------------------ */
+.honestidade {
+  color: var(--muted); font-size: .8125rem; line-height: 1.45;
+  border-left: 3px solid var(--badge-bg); padding-left: 10px; margin-top: 12px;
+}
+
+.ponto { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+
+/* Tabelas largas rolam dentro do próprio container; o body nunca rola lateral. */
+.rolagem-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}

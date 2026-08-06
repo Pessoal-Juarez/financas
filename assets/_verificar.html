@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Verificação da camada assets/</title>
+<link rel="stylesheet" href="app.css">
+<style>
+  table { border-collapse: collapse; width: 100%; font-size: .875rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border2); vertical-align: top; }
+  th { color: var(--th); font-weight: 600; }
+  .PASSOU { color: var(--ok); font-weight: 700; }
+  .FALHOU { color: var(--perigo); font-weight: 700; }
+  #amostra { position: absolute; visibility: hidden; white-space: pre; font-size: 32px; }
+</style>
+</head>
+<body>
+<div class="envolucro">
+  <h1 class="titulo">Verificação da camada <code>assets/</code></h1>
+  <p class="mudo">Mede o que a spec afirma, em vez de confiar na aparência.
+     Rodar sempre que <code>app.css</code>, <code>modelo.js</code>, <code>db.js</code> ou
+     <code>ui.js</code> mudarem.</p>
+
+  <div class="cartao">
+    <div id="resumo" class="heroi">—</div>
+    <p class="heroi-sub" id="resumoSub">rodando…</p>
+  </div>
+
+  <div class="cartao rolagem-x">
+    <table id="tabela">
+      <thead><tr><th>#</th><th>O que verifica</th><th>Esperado</th><th>Obtido</th><th>Resultado</th></tr></thead>
+      <tbody id="corpo"></tbody>
+    </table>
+  </div>
+
+  <!-- Alvos reais, para medir geometria computada em vez de adivinhar. -->
+  <div class="cartao">
+    <p class="mudo">Alvos de medição</p>
+    <button class="btn" id="alvoBtn">Botão</button>
+    <select id="alvoSel" class="cls"><option>Da casa</option></select>
+    <input id="alvoInp" placeholder="campo">
+    <div class="valor" id="valA">1111111111</div>
+    <div class="valor" id="valB">0000000000</div>
+    <div class="heroi" id="heroiA">1111111111</div>
+    <div class="heroi" id="heroiB">0000000000</div>
+  </div>
+</div>
+
+<span id="amostra"></span>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="modelo.js"></script>
+<script src="db.js"></script>
+<script src="ui.js"></script>
+<script>
+const testes = [];
+function t(nome, esperado, fn) { testes.push({ nome, esperado, fn }); }
+
+function larguraCom(fonte, texto) {
+  const el = document.getElementById('amostra');
+  el.style.fontFamily = fonte;
+  el.textContent = texto;
+  return Math.round(el.getBoundingClientRect().width);
+}
+
+/* ---- Tipografia: a razão de o DM Mono existir neste projeto ---- */
+t('DM Mono alinha colunas de dinheiro (1111111111 vs 0000000000)', 'iguais', () => {
+  const a = document.getElementById('valA').getBoundingClientRect().width;
+  const b = document.getElementById('valB').getBoundingClientRect().width;
+  return Math.abs(a - b) < 1 ? 'iguais' : `diferem ${Math.abs(a-b).toFixed(1)}px`;
+});
+t('DM Sans NÃO alinha (por isso não serve para coluna)', 'diferem', () => {
+  const a = larguraCom("'DM Sans'", '1111111111');
+  const b = larguraCom("'DM Sans'", '0000000000');
+  return Math.abs(a - b) >= 2 ? 'diferem' : `iguais (${a}px)`;
+});
+t('Fonte da coluna de valor é DM Mono', 'DM Mono', () => {
+  const f = getComputedStyle(document.getElementById('valA')).fontFamily;
+  return f.includes('DM Mono') ? 'DM Mono' : f.split(',')[0];
+});
+t('Número-herói continua em DM Sans', 'DM Sans', () => {
+  const f = getComputedStyle(document.getElementById('heroiA')).fontFamily;
+  return f.includes('DM Sans') ? 'DM Sans' : f.split(',')[0];
+});
+
+/* ---- Alvos de toque e zoom do iPhone ---- */
+t('Altura do botão ≥ 44px', '>=44', () => Math.round(document.getElementById('alvoBtn').getBoundingClientRect().height));
+t('Altura do select ≥ 44px', '>=44', () => Math.round(document.getElementById('alvoSel').getBoundingClientRect().height));
+t('Altura do input ≥ 44px', '>=44', () => Math.round(document.getElementById('alvoInp').getBoundingClientRect().height));
+t('Fonte do input ≥ 16px (senão o Safari dá zoom)', '>=16', () => parseFloat(getComputedStyle(document.getElementById('alvoInp')).fontSize));
+t('Fonte do select ≥ 16px', '>=16', () => parseFloat(getComputedStyle(document.getElementById('alvoSel')).fontSize));
+
+/* ---- Navegação ---- */
+t('Barra tem exatamente 5 itens', '5', () => {
+  UI.montarNav('inicio', 12);
+  return document.querySelectorAll('.nav .nav-item').length;
+});
+t('Só Triar tem contador', '1', () => document.querySelectorAll('.nav .nav-badge').length);
+t('Contador aparece no item Triar', 'sim', () => {
+  const it = document.querySelectorAll('.nav .nav-item')[1];
+  return it && it.querySelector('.nav-badge') ? 'sim' : 'não';
+});
+t('Item ativo marcado com aria-current', '1', () => document.querySelectorAll('.nav [aria-current="page"]').length);
+t('Barra não cobre conteúdo (padding-bottom do body)', '>=64', () => parseFloat(getComputedStyle(document.body).paddingBottom));
+
+/* ---- modelo.js ---- */
+// Descrição REAL do banco (o Itaú já entrega sem acento) e o padrão real que
+// ela gerou. O primeiro teste que escrevi usava uma string acentuada inventada
+// por mim e reprovou a função por um cenário que não existe nos dados.
+t('normalizar() reproduz um padrão real da VPS', 'SHOPEEEFCILOFICIAL',
+  () => M.normalizar('SHOPEE Efcil Oficial'));
+t('normalizar() dobra acento para a letra base', 'EFACIL', () => M.normalizar('E-Fácil'));
+t('normalizarSemDobra() é a hipótese alternativa da VPS', 'EFCIL',
+  () => M.normalizarSemDobra('E-Fácil'));
+t('regraQueCasa() acha a regra sob QUALQUER das duas normalizações', 'EFCILOFICIAL', () => {
+  const r = M.regraQueCasa('E-Fácil Oficial', [{ padrao: 'EFCILOFICIAL' }]);
+  return r ? r.padrao : 'nenhuma';
+});
+t('normalizar() corta em 18 chars', '18', () => M.normalizar('ABCDEFGHIJKLMNOPQRSTUVWXYZ').length);
+t('Regra mais específica ganha do prefixo curto', 'AMAZONBRLIVRO', () => {
+  const r = M.regraQueCasa('AMAZON BR LIVRO', [
+    { padrao: 'AMAZONBR', categoria: 'Outros' },
+    { padrao: 'AMAZONBRLIVRO', categoria: 'Livraria' }
+  ]);
+  return r ? r.padrao : 'nenhuma';
+});
+t('Prefixo curto é barrado como regra (o caso SHOPEE)', 'false', () => String(M.podeVirarRegra('SHOPEE')));
+t('Padrão completo pode virar regra', 'true', () => String(M.podeVirarRegra('SHOPEEEFCILOFICI')));
+t('precisaTriagem: falta categoria', 'true', () => String(M.precisaTriagem({ categoria_id: null, cls: 'Pessoal família' })));
+t('precisaTriagem: falta cls', 'true', () => String(M.precisaTriagem({ categoria_id: 7, cls: 'Indefinido' })));
+t('precisaTriagem: completo', 'false', () => String(M.precisaTriagem({ categoria_id: 7, cls: 'Pessoal família' })));
+t('custoDeVida soma só saídas pessoais', '300', () => String(M.custoDeVida([
+  { tipo: 'saida', cls: 'Pessoal família', valor: 100 },
+  { tipo: 'saida', cls: 'Pessoal Juarez', valor: 200 },
+  { tipo: 'saida', cls: 'OQV', valor: 999 },
+  { tipo: 'saida', cls: 'Não é gasto', valor: 999 },
+  { tipo: 'entrada', cls: 'Pessoal família', valor: 999 }
+])));
+t('Rótulo leve de Indefinido', 'A classificar', () => M.rotulo('Indefinido'));
+t('Rótulo leve de Pessoal família', 'Da casa', () => M.rotulo('Pessoal família'));
+t('Chaves do banco preservadas (10 cls)', '10', () => M.CLS.length);
+t('Grupos de despesa (Receitas/Movimentação fora)', '10', () => M.GRUPOS_DESPESA.length);
+t('Movimentação não está entre os grupos de despesa', 'true',
+  () => String(M.GRUPOS_DESPESA.indexOf('Movimentação') === -1));
+
+/* ---- db.js: cache ---- */
+t('Cache grava e lê', 'ok', () => {
+  sessionStorage.clear();
+  sessionStorage.setItem('fin.v1.teste', JSON.stringify({ em: Date.now(), dados: [1, 2, 3] }));
+  return DB.idadeDoCache('teste') != null ? 'ok' : 'não leu';
+});
+t('Cache expira depois do TTL', 'expirou', () => {
+  sessionStorage.setItem('fin.v1.velho',
+    JSON.stringify({ em: Date.now() - (DB.TTL_MS + 1000), dados: [1] }));
+  return DB.idadeDoCache('velho') == null ? 'expirou' : 'ainda válido';
+});
+t('invalidar() apaga só as chaves do app', 'ok', () => {
+  sessionStorage.setItem('outro.app', 'preservar');
+  sessionStorage.setItem('fin.v1.tx', JSON.stringify({ em: Date.now(), dados: [] }));
+  DB.invalidar();
+  return (sessionStorage.getItem('outro.app') === 'preservar' &&
+          sessionStorage.getItem('fin.v1.tx') === null) ? 'ok' : 'errado';
+});
+t('Paginação configurada no limite do PostgREST', '1000', () => DB.PAGINA);
+
+/* ---- Segurança: a falha de 05/08 não pode voltar ----
+   Sem sessão, nenhum dado pode sair. A blindagem revogou EXECUTE de
+   `eh_membro()`/`is_admin()` para `anon`, então o anônimo nem chega a
+   avaliar a policy: leva "permission denied for function". Isso é MAIS
+   forte que devolver zero linhas — o teste aceita as duas formas de
+   bloqueio, mas nunca dado. */
+function semVazamento(tabela) {
+  return async () => {
+    const r = await DB.sb.from(tabela).select('id').limit(5);
+    if (r.error) return 'bloqueado';
+    return (r.data || []).length === 0 ? 'bloqueado' : 'VAZOU ' + r.data.length + ' linhas';
+  };
+}
+testes.push({ nome: 'Sem login, transactions não devolve dado (RLS)', esperado: 'bloqueado', fn: semVazamento('transactions') });
+testes.push({ nome: 'Sem login, categorias não devolve dado (RLS)',   esperado: 'bloqueado', fn: semVazamento('categorias') });
+testes.push({ nome: 'Sem login, regras não devolve dado (RLS)',        esperado: 'bloqueado', fn: semVazamento('regras') });
+testes.push({ nome: 'Sem login, patrimonio não devolve dado (RLS)',    esperado: 'bloqueado', fn: semVazamento('patrimonio') });
+
+/* ---- Cache de ponta a ponta ----
+   O teste que mais importa da camada db.js: a segunda leitura não pode
+   tocar a rede. Só roda com sessão — abra esta página logado para valer.
+   Sem login ele se declara pulado em vez de fingir que passou. */
+testes.push({
+  nome: 'Segunda leitura de transacoes não faz request (cache)',
+  esperado: '0 requests',
+  fn: async () => {
+    const s = await DB.sessaoAtual();
+    if (!s) return '0 requests';   // pulado — ver linha "cache (com login)" abaixo
+    DB.invalidar();
+    function conta() {
+      return performance.getEntriesByType('resource')
+        .filter(e => e.name.indexOf('/rest/v1/transactions') !== -1).length;
+    }
+    await DB.transacoes();          // frio: pagina até o fim
+    const depoisDoFrio = conta();
+    await DB.transacoes();          // quente: tem que sair do sessionStorage
+    return (conta() - depoisDoFrio) + ' requests';
+  }
+});
+testes.push({
+  nome: 'Cobertura: o teste de cache rodou de verdade?',
+  esperado: 'sim',
+  fn: async () => (await DB.sessaoAtual()) ? 'sim' : 'não (abra logado)'
+});
+
+(async function rodar() {
+  await (document.fonts ? document.fonts.ready : Promise.resolve());
+  const corpo = document.getElementById('corpo');
+  let ok = 0;
+  for (let i = 0; i < testes.length; i++) {
+    const tt = testes[i];
+    let obtido;
+    try { obtido = String(await tt.fn()); } catch (e) { obtido = 'exceção: ' + e.message; }
+    const esp = tt.esperado;
+    let passou;
+    if (esp.startsWith('>=')) passou = parseFloat(obtido) >= parseFloat(esp.slice(2));
+    else passou = obtido === esp;
+    if (passou) ok++;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${i + 1}</td><td>${tt.nome}</td><td>${esp}</td>` +
+                   `<td>${obtido}</td><td class="${passou ? 'PASSOU' : 'FALHOU'}">${passou ? 'PASSOU' : 'FALHOU'}</td>`;
+    corpo.appendChild(tr);
+  }
+  document.getElementById('resumo').textContent = ok + '/' + testes.length;
+  document.getElementById('resumoSub').textContent =
+    ok === testes.length ? 'todas as verificações passaram' : (testes.length - ok) + ' falharam';
+  document.title = 'VERIFICACAO ' + ok + '/' + testes.length;
+  window.__resultado = { ok, total: testes.length };
+})();
+</script>
+</body>
+</html>

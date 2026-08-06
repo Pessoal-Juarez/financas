@@ -20,7 +20,30 @@ Spec aprovada (v1.2), plano de construção escrito
 | 2 | Tabela `categorias` + seed + RLS | ✅ **54 subs, 12 grupos** |
 | 3 | `categoria_id` + backfill nas duas tabelas | ✅ aplicado |
 | 4 | `sql/verificacao.sql` | ✅ **15/15 PASSOU** |
-| 5–10 | `assets/` e telas | pendente |
+| 5 | Camada `assets/` + fontes | ✅ na branch **`redesign`** · **40/41** em `assets/_verificar.html` |
+| 6–10 | Fase 2 (trigger) e telas | pendente |
+
+**Passo 5 — o que existe:** `assets/modelo.js` (regras de negócio), `db.js` (auth,
+leitura paginada, cache), `ui.js` (nav, toast, estados), `app.css` (tokens, tipografia),
+`fonts/` (DM Sans + DM Mono, trazidas da `redesign-nomad`) e **`assets/_verificar.html`**,
+que mede em vez de observar. Está na branch `redesign` — a `main` não mudou, o app no ar
+continua o antigo.
+
+A única verificação não aprovada é a de cobertura, avisando que o teste de cache de ponta
+a ponta **não rodou por falta de login**. Ela reprova de propósito em vez de fingir que
+passou. Para fechá-la: subir `python -m http.server` na raiz do repo e abrir
+`assets/_verificar.html` **logado**.
+
+⚠️ **A view `transactions` precisou ser recriada** para expor `categoria_id` — ela lista
+colunas explicitamente e não enxergava a coluna nova. `security_invoker=on` preservado.
+A coluna entrou no fim da view (`create or replace view` recusa reordenar).
+
+⚠️ **Ponto em aberto — normalização de acento.** A VPS gera `regras.padrao` e não se sabe
+se ela derruba a letra acentuada (`E-Fácil` → `EFCIL`) ou a dobra para a base (`EFACIL`).
+O banco não desempata: as descrições do Itaú já chegam sem acento e nenhuma das 173
+acentuadas gerou regra. `modelo.js` calcula as duas e casa regra por qualquer uma, então
+divergência não esconde sugestão. **Confirmar em `/root/financas/` na próxima vez que
+mexer na VPS.**
 
 **Números depois da migração:**
 
