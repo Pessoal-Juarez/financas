@@ -119,9 +119,17 @@ travado em coisa que cresce vira ruído, e asserção que grita sozinha deixa de
 
 ### 5. Pendências do Juarez
 
-1. **Atualizar CDB e BTG** no patrimônio (Mais › Planejar). Parados há 62 dias, e são 57%
-   do total — o fôlego de 2,3 meses é estimativa enquanto isso.
-2. **Testar a Fase A** e dizer o que incomoda.
+1. **Atualizar CDB e BTG** no patrimônio (Mais › Planejar). Parados há 63 dias, e são 57%
+   do total — o fôlego de 3,1 meses é estimativa enquanto isso. Os campos são editáveis na
+   própria tela: digitar, sair do campo, salva sozinho. Não precisa de SQL nem de deploy.
+2. **Instalar nos celulares** (07/08). Android, no Chrome: menu ⋮ → "Instalar app". iPhone,
+   **no Safari** (Chrome no iOS não instala PWA): Compartilhar → "Adicionar à Tela de
+   Início". Quem já tinha o app antigo instalado **não precisa reinstalar** — o atalho
+   antigo abre o app novo, porque o `start_url` é a raiz.
+   ⏳ Falta saber se o Chrome do Android oferece "Instalar app" (WebAPK, abre limpo) ou só
+   "Adicionar à tela inicial" (atalho, pode abrir com a barra do navegador). Sem service
+   worker isso pode variar, e só dá para descobrir no aparelho.
+3. **Testar a Fase A** e dizer o que incomoda.
 
 ---
 
@@ -138,6 +146,25 @@ travado em coisa que cresce vira ruído, e asserção que grita sozinha deixa de
 | Rótulos | Da casa · Do Juarez · Da Raiane · Clínica · Emprestado · Não conta · A classificar | spec §4 |
 | Backend | **continua Supabase.** Firefly III avaliado e descartado | ver abaixo |
 | Gráficos | **SVG puro, sem Chart.js** — CDN quebraria o app offline | — |
+| Lembrete semanal de triagem | **descartado em 07/08/2026** — fica sem notificação | ver abaixo |
+
+### Por que não há lembrete de triagem (07/08)
+
+Avaliado e descartado pelo Juarez. Fica registrado para não voltar como ideia nova.
+
+Notificação web exige **service worker**, que este projeto não tem — e a ausência dele é
+o que garantiu que a virada de chave não prendesse ninguém em versão velha. Além disso,
+no iPhone o push só funciona a partir do iOS 16.4 **e só com o app adicionado à tela de
+início**; se a Raiane remover o ícone, as notificações param sem avisar. Justo o aparelho
+onde o lembrete mais importaria é onde ele é mais frágil.
+
+A alternativa levantada — lembrete semanal por e-mail ou WhatsApp disparado pelo cron da
+VPS, que já existe — também foi descartada. **Decisão: fica sem lembrete nenhum.**
+
+O sinal continua dentro do app: a aba **Triar** mostra o tamanho da fila ao abrir.
+
+Se um dia isso for reaberto, o caminho menos ruim é um service worker **só de push**, sem
+`fetch` handler e sem cache — assim a armadilha do cache velho continua não existindo.
 
 ### Por que o Firefly III foi descartado (06/08)
 
