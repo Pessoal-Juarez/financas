@@ -1,26 +1,25 @@
 # Onde paramos
 
-**Última atualização:** 06/08/2026, fim do dia.
+**Última atualização:** 07/08/2026, tarde.
 **Leia este arquivo primeiro** ao retomar o projeto.
 
 ---
 
 ## Em uma frase
 
-O app novo está **inteiro e funcionando na branch `redesign`**, com paridade de
-funcionalidades em relação ao app antigo. A `main` continua servindo o app velho — a
-virada de chave **ainda não foi feita**, de propósito. O próximo passo é a **Fase B** ou a
-**virada**, o que o Juarez decidir.
+**A virada de chave foi feita em 07/08/2026: o app novo está no ar.** A `main` serve as
+13 telas, `index.html` é o login e o app antigo virou `legado.html`, sem link. O que
+falta é a **Fase B** e as **pendências da VPS**.
 
 ## Como rodar em 10 segundos
 
 ```bash
 cd C:\Users\Samsung\Documents\Claude\Projects\Pessoal\financas
-git checkout redesign
 python -m http.server 8777
 ```
-Abrir `http://localhost:8777/inicio.html`. A sessão fica no `localStorage` do
-`localhost:8777`, então normalmente já está logado.
+Abrir `http://localhost:8777/`. A sessão fica no `localStorage` do `localhost:8777`,
+então normalmente já está logado e o login manda direto para `inicio.html`.
+No ar: <https://pessoal-juarez.github.io/financas/>.
 
 ---
 
@@ -28,9 +27,11 @@ Abrir `http://localhost:8777/inicio.html`. A sessão fica no `localStorage` do
 
 | Branch | O que tem | No ar? |
 |---|---|---|
-| **`main`** | app antigo (`index.html`, `dashboard.html`) + **todas as migrações SQL** | ✅ GitHub Pages |
-| **`redesign`** | app novo: 12 telas + `assets/` + fontes | ❌ só local |
+| **`main`** | **app novo** (13 telas + `assets/`) + `legado.html` + migrações SQL | ✅ GitHub Pages |
+| `redesign` | mesma coisa — foi mesclada na `main` em `b15822e` | idem |
 | `redesign-nomad` | tentativa rejeitada em 05/08 | não mesclar |
+
+Depois da virada as duas branches são a mesma coisa. Pode trabalhar direto na `main`.
 
 ⚠️ **O banco é o MESMO para os dois apps.** Todas as migrações já estão aplicadas em
 produção. O app antigo continua funcionando porque lê `categoria` como texto, que o
@@ -72,14 +73,24 @@ paginada, cache), `ui.js` (nav, toast, estados, gráficos), `app.css` (tokens, t
 | B2 | **Motor de regras com condição + ação** | resolve estruturalmente a armadilha dos 18 caracteres. ⚠️ Exige mexer no sync da VPS, onde as regras são aplicadas |
 | B3 | **"Quem me deve" e empresas como contas a receber** | responde "quanto falta me pagarem" sem gambiarra de etiqueta |
 
-### 2. A virada de chave — três decisões do Juarez
+### 2. ✅ A virada de chave — feita em 07/08/2026
 
-1. **`index.html` vira porta de entrada** (login → `inicio.html`).
-   ⚠️ O `start_url` do manifest é `"."`: a raiz **tem** que continuar respondendo, senão
-   quebra os PWAs já instalados nos celulares.
-2. **O que fazer com `dashboard.html`** — o app novo cobre tudo que ele fazia, mas ele
-   continua lá.
-3. **Merge de `redesign` na `main`** — isso é o deploy; o Pages republica em ~1 min.
+Fica registrado o que foi decidido, para não ser reaberto:
+
+1. **`index.html` é a porta de entrada** — login que, com sessão, manda para
+   `inicio.html`. A raiz responde, então o `start_url: "."` do manifest continua válido e
+   os PWAs instalados nos celulares não quebraram.
+2. **O app antigo virou `legado.html`**, intacto e sem link em lugar nenhum.
+   `dashboard.html` ficou onde estava, também sem link — o "← Painel" dele aponta para o
+   legado. São a rede de segurança; apagar daqui a duas semanas se ninguém usar.
+3. **`redesign` mesclada na `main`** em `b15822e`, Pages republicado e conferido.
+
+Duas descobertas do dia que valem para qualquer virada futura: **não existe service
+worker** neste projeto (o PWA é só um atalho standalone, ninguém fica preso em cache
+velho) e **a sessão do Supabase atravessa os dois apps** (mesma URL, mesmo storage), então
+ninguém precisou digitar senha de novo.
+
+Reverter, se precisar: `git revert` do merge `b15822e`.
 
 ### 3. Pendências na VPS (`/root/financas/`)
 
@@ -91,12 +102,15 @@ Só se resolvem lá, e nenhuma é urgente:
 | V2 | **Confirmar a normalização de acento** que gera `regras.padrao` | o front calcula as duas hipóteses porque não dá para saber daqui |
 | V3 | **A janela de 18 caracteres** de `regras.padrao` | curta demais quando o banco antepõe texto burocrático. Foi o que criou a regra que mandava 63 estabelecimentos para Farmácia |
 
-### 4. Verificação que só o tempo fecha
+### 4. ✅ Verificação que só o tempo fecha — feita em 07/08/2026
 
-⏳ **Conferir se o cron das 7h gravou normalmente** depois do trigger da Fase 2. Rodar
-`sql/verificacao.sql`: os lançamentos novos devem aparecer **já com `categoria_id`**, não
-na fila. Se algo der errado, o rollback é `drop trigger` — o app antigo volta sozinho,
-porque nunca deixou de ler o texto.
+O cron das 7h de 07/08 gravou normalmente e o trigger da Fase 2 funcionou. A linha que
+entrou (`Débito automático PERS INFINIT`, R$ 6.928,22) chegou **já com `categoria_id` 48**
+e `cls` = `Não é gasto` — não caiu na fila. Verificação: 21 de 21. Não precisa de rollback.
+
+⚠️ Uma sobra: a asserção nº 1 do `sql/verificacao.sql` trava o total em `3132`, então ela
+vai acusar `FALHOU` todo dia que o cron rodar. Trocar por `>= 3132` para ela medir o que
+quer medir ("nenhuma transação foi perdida") em vez de virar ruído.
 
 ### 5. Pendências do Juarez
 
