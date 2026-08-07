@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="system">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Empresas · Finanças da Família</title>
+<meta name="theme-color" content="#2f6df0">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Finanças">
+<link rel="stylesheet" href="assets/app.css">
+<style>
+  .voltar { text-decoration:none; color:var(--muted); font-size:.9375rem;
+            min-height:var(--alvo); display:inline-flex; align-items:center; }
+  .emp { padding:12px 0; border-bottom:1px solid var(--border2); }
+  .emp:last-of-type { border-bottom:0; }
+  .emp .topo { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+  .emp .nome { font-weight:600; }
+  .emp .n { color:var(--muted); font-size:.8125rem; }
+  .cols { display:flex; gap:14px; margin-top:6px; font-size:.9375rem; }
+  .cols div { flex:1; }
+  .cols .r { color:var(--ok); } .cols .g { color:var(--perigo); }
+  .trilho { height:6px; border-radius:3px; background:var(--border2); margin-top:8px; overflow:hidden; }
+  .trilho i { display:block; height:100%; }
+  .sub-linha { display:flex; gap:10px; padding:6px 0; font-size:.9375rem; }
+  .sub-linha .nome { flex:1; min-width:0; color:var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="cabecalho">
+  <h1 class="titulo">Empresas</h1>
+  <a class="voltar" href="mais.html">‹ Mais</a>
+</div>
+
+<div class="envolucro" id="tela">
+  <div class="cartao"><div class="esqueleto"><div class="esq-linha"><div class="esq"></div></div></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/modelo.js"></script>
+<script src="assets/db.js"></script>
+<script src="assets/ui.js"></script>
+<script>
+'use strict';
+const $ = UI.$;
+let TX = [], CATS = [], MESES = [], janela = 12, aberta = null;
+
+function catDe(t) { return CATS.find(c => c.id === t.categoria_id) || null; }
+function noPeriodo(t) { return MESES.slice(0, janela).indexOf(M.ym(t.data)) !== -1; }
+
+function desenhar() {
+  UI.montarNav('mais', TX.filter(M.precisaTriagem).length);
+  const doPeriodo = TX.filter(noPeriodo);
+  const saldos = M.saldoDasEmpresas(doPeriodo);
+  const rotulo = janela === 1 ? M.rotuloMes(MESES[0]) : 'últimos ' + janela + ' meses';
+
+  const totalRec = saldos.reduce((a, s) => a + s.receita, 0);
+  const totalGas = saldos.reduce((a, s) => a + s.gasto, 0);
+
+  // Série mensal do resultado consolidado, para a tendência.
+  const serie = MESES.slice(0, 12).slice().reverse().map(m => {
+    const doMes = TX.filter(t => M.ym(t.data) === m);
+    const s = M.saldoDasEmpresas(doMes);
+    return { rotulo: M.rotuloMes(m),
+             valor: s.reduce((a, x) => a + x.receita, 0) - s.reduce((a, x) => a + x.gasto, 0) };
+  });
+
+  $('tela').innerHTML =
+    '<div class="cartao">' +
+      '<div class="periodo" style="display:flex;gap:6px">' +
+        [1, 3, 6, 12].map(n => '<button class="btn ' + (n === janela ? '' : 'alt') +
+          '" style="flex:1" data-j="' + n + '">' + (n === 1 ? 'Mês' : n + 'm') + '</button>').join('') +
+      '</div>' +
+    '</div>' +
+
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0 0 2px">As empresas se pagam? · ' + rotulo + '</p>' +
+      '<p class="heroi" style="font-size:1.75rem;margin:2px 0">' +
+        UI.BRL(totalRec - totalGas) + '</p>' +
+      '<p class="heroi-sub">' + UI.BRL(totalRec) + ' entraram · ' + UI.BRL(totalGas) + ' saíram.' +
+        (totalRec < totalGas
+          ? '<br><b>A família está bancando a diferença.</b>'
+          : '<br>No conjunto, elas se sustentam.') +
+      '</p>' +
+
+      (saldos.length
+        ? saldos.map(s =>
+            '<div class="emp">' +
+              '<div class="topo"><span class="nome">' + UI.escapar(s.empresa) + '</span>' +
+                '<b class="valor" style="color:' + (s.saldo >= 0 ? 'var(--ok)' : 'var(--perigo)') + '">' +
+                UI.BRL(s.saldo) + '</b></div>' +
+              '<div class="cols">' +
+                '<div class="r">+ ' + UI.BRL(s.receita) + '<br><span class="n">entrou</span></div>' +
+                '<div class="g">− ' + UI.BRL(s.gasto) + '<br><span class="n">saiu</span></div>' +
+                '<div>' + Math.round(s.cobertura) + '%<br><span class="n">cobertura</span></div>' +
+              '</div>' +
+              '<div class="trilho"><i style="width:' + Math.min(100, s.cobertura) + '%;' +
+                'background:' + (s.cobertura >= 100 ? 'var(--ok)' : 'var(--badge-fg)') + '"></i></div>' +
+              '<button class="btn alt" style="margin-top:8px;min-height:36px" data-e="' +
+                UI.escapar(s.empresa) + '">' +
+                (aberta === s.empresa ? 'Ocultar detalhe' : 'Ver despesas e receitas') + '</button>' +
+              (aberta === s.empresa ? detalhe(s.empresa, doPeriodo) : '') +
+            '</div>').join('')
+        : '<p class="mudo">Nenhum lançamento de empresa no período.</p>') +
+    '</div>' +
+
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0 0 4px">Resultado consolidado mês a mês</p>' +
+      UI.barrasComTendencia(serie, { titulo: 'Resultado das empresas por mês' }) +
+      '<p class="mudo" style="font-size:.8125rem;margin:6px 0 0">' +
+        UI.leituraDaTendencia(serie) + '</p>' +
+    '</div>';
+
+  document.querySelectorAll('[data-j]').forEach(el => {
+    el.onclick = () => { janela = Number(el.dataset.j); desenhar(); };
+  });
+  document.querySelectorAll('[data-e]').forEach(el => {
+    el.onclick = () => { aberta = (aberta === el.dataset.e) ? null : el.dataset.e; desenhar(); };
+  });
+}
+
+// Responde "onde vejo as despesas E as receitas da empresa": as duas
+// colunas, por categoria, sem misturar com o custo de vida da família.
+function detalhe(empresa, doPeriodo) {
+  const linhas = doPeriodo.filter(t => t.cls === empresa);
+  const gastos = {}, receitas = {};
+  linhas.forEach(t => {
+    const c = catDe(t);
+    const nome = c ? c.grupo + ' › ' + c.nome : (t.categoria || 'sem categoria');
+    const alvo = M.ehSaida(t) ? gastos : receitas;
+    alvo[nome] = (alvo[nome] || 0) + (Number(t.valor) || 0);
+  });
+  const bloco = (titulo, obj, cor) => {
+    const arr = Object.entries(obj).sort((a, b) => b[1] - a[1]);
+    if (!arr.length) return '';
+    return '<p class="mudo" style="margin:10px 0 2px">' + titulo + '</p>' +
+      arr.map(([n, v]) => '<div class="sub-linha"><span class="nome">' + UI.escapar(n) +
+        '</span><b class="valor" style="color:' + cor + '">' + UI.BRL(v) + '</b></div>').join('');
+  };
+  return '<div style="padding-left:4px">' +
+    bloco('Receitas', receitas, 'var(--ok)') +
+    bloco('Despesas', gastos, 'var(--perigo)') +
+    (linhas.length ? '' : '<p class="mudo">Sem lançamentos.</p>') + '</div>';
+}
+
+async function carregar(forcar) {
+  try {
+    const d = await DB.tudo(forcar);
+    TX = d.tx; CATS = d.categorias;
+    MESES = M.mesesComDado(TX);
+    desenhar();
+  } catch (e) { UI.erro($('tela'), e.message, () => carregar(true)); }
+}
+
+(async function () {
+  const perfil = await UI.exigirSessao();
+  if (!perfil) return;
+  // A colab enxerga as empresas dela; OQV e contas PJ o RLS já corta no
+  // banco, então esta tela mostra o que ela pode ver, sem tela vazia.
+  UI.puxarParaAtualizar(() => carregar(true));
+  await carregar(false);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="system">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Triar · Finanças da Família</title>
+<meta name="theme-color" content="#2f6df0">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Finanças">
+<link rel="stylesheet" href="assets/app.css">
+<style>
+  /* Só o que é específico desta tela. O resto vem de app.css. */
+  .lote { border-left: 3px solid var(--acento); }
+  .tri-topo { display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
+  .tri-desc { font-size:1.125rem; font-weight:600; line-height:1.3; margin:8px 0 2px; word-break:break-word; }
+  .tri-meta { color:var(--muted); font-size:.8125rem; }
+  .tri-valor { font-size:1.75rem; font-weight:700; }
+  .campo { margin-top:14px; }
+  .campo label { display:block; color:var(--muted); font-size:.8125rem; margin-bottom:4px; }
+  .campo select { width:100%; }
+  .acoes { display:flex; gap:8px; margin-top:18px; }
+  .acoes .btn { flex:1; }
+  .fonte { margin-top:12px; font-size:.8125rem; }
+  .fonte.regra { color:var(--muted); }
+  .fonte.nova { color:var(--badge-fg); background:var(--badge-bg);
+                padding:8px 10px; border-radius:8px; display:inline-block; }
+  .erro-inline { color:#fff; background:var(--perigo); padding:10px 12px;
+                 border-radius:8px; margin-top:12px; font-size:.875rem; }
+  .lista-lote { max-height:52vh; overflow-y:auto; margin:12px 0; }
+  .item-lote { display:flex; gap:10px; align-items:flex-start; padding:10px 0;
+               border-bottom:1px solid var(--border2); }
+  .item-lote input[type=checkbox] { min-height:24px; width:24px; height:24px; margin-top:2px; flex:none; }
+  .item-lote .txt { flex:1; min-width:0; }
+  .item-lote .d { font-size:.9375rem; word-break:break-word; }
+  .item-lote .s { color:var(--muted); font-size:.8125rem; }
+  .progresso { color:var(--muted); font-size:.875rem; margin-top:8px; }
+</style>
+</head>
+<body>
+
+<div class="cabecalho">
+  <h1 class="titulo">Triar</h1>
+  <span class="frescor" id="frescor"></span>
+</div>
+
+<div class="envolucro" id="tela">
+  <div class="cartao"><div class="esqueleto"><div class="esq-linha"><div class="esq"></div></div></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/modelo.js"></script>
+<script src="assets/db.js"></script>
+<script src="assets/ui.js"></script>
+<script>
+'use strict';
+const $ = UI.$;
+let TX = [], CATS = [], REGRAS = [];
+let fila = [], atual = 0, pulados = {};
+
+/* ------------------------------------------------------------------
+   Fila
+   ------------------------------------------------------------------
+   Um lançamento entra aqui por faltar categoria, faltar classificação, ou
+   as duas. Medido em 06/08: 620 sem categoria, 623 sem cls, 656 na união —
+   quem usar só uma das contas erra por dezenas.
+
+   Mais recente primeiro: é o que a pessoa lembra de ter gastado. */
+function montarFila() {
+  fila = TX.filter(M.precisaTriagem)
+           .sort((a, b) => String(b.data).localeCompare(String(a.data)));
+}
+
+// Só conta como resolvível em lote o que a regra resolve POR COMPLETO.
+// Regra que preenche metade deixaria o lançamento na fila mesmo assim —
+// aplicar em lote daria a impressão de progresso sem tirar ninguém da fila.
+function sugestaoCompleta(t) {
+  const r = M.regraQueCasa(t.descricao, REGRAS);
+  if (!r || !r.categoria_id) return null;
+  const cls = (r.cls || '').trim();
+  if (!cls || cls === M.CLS_INDEFINIDO) return null;
+  return { regra: r, categoria_id: r.categoria_id, cls: cls };
+}
+
+function catPorId(id) { return CATS.find(c => c.id === id) || null; }
+function nomeCat(id) {
+  const c = catPorId(id);
+  return c ? c.grupo + ' › ' + c.nome : '—';
+}
+
+function opcoesCategoria(sel) {
+  const grupos = [];
+  CATS.forEach(c => { if (grupos.indexOf(c.grupo) === -1) grupos.push(c.grupo); });
+  return '<option value="">— escolher categoria —</option>' + grupos.map(g =>
+    '<optgroup label="' + UI.escapar(g) + '">' +
+    CATS.filter(c => c.grupo === g && c.ativa).map(c =>
+      '<option value="' + c.id + '"' + (c.id === sel ? ' selected' : '') + '>' +
+      UI.escapar(c.nome) + '</option>').join('') +
+    '</optgroup>').join('');
+}
+
+function opcoesCls(sel) {
+  return '<option value="">— escolher —</option>' + M.CLS
+    .filter(c => c !== M.CLS_INDEFINIDO)   // "A classificar" não é escolha, é ausência
+    .map(c => '<option value="' + UI.escapar(c) + '"' + (c === sel ? ' selected' : '') + '>' +
+              UI.escapar(M.rotulo(c)) + '</option>').join('');
+}
+
+/* ------------------------------------------------------------------
+   Tela
+   ------------------------------------------------------------------ */
+function desenhar() {
+  const restantes = fila.filter(t => !pulados[t.id]);
+  UI.montarNav('triar', fila.length);
+  UI.marcarFrescor($('frescor'), 'tx');
+
+  if (!restantes.length) {
+    const houvePulo = Object.keys(pulados).length > 0;
+    UI.vazio($('tela'),
+      houvePulo ? 'Só sobraram os que você pulou' : 'Fila vazia',
+      houvePulo
+        ? 'Você pulou ' + Object.keys(pulados).length + '. Eles voltam quando você quiser.'
+        : 'Nada esperando classificação. O app já sabe para onde foi cada real.',
+      houvePulo ? '<button class="btn" id="btnVoltarPulados">Rever os pulados</button>' : '');
+    const b = $('btnVoltarPulados');
+    if (b) b.onclick = () => { pulados = {}; atual = 0; desenhar(); };
+    return;
+  }
+
+  if (atual >= restantes.length) atual = 0;
+  const t = restantes[atual];
+  const s = sugestaoCompleta(t);
+  const emLote = fila.filter(x => !pulados[x.id] && sugestaoCompleta(x)).length;
+
+  const cartaoLote = emLote > 0
+    ? '<div class="cartao lote">' +
+        '<p style="margin:0 0 4px"><b>' + emLote + '</b> já casam com regras que você ensinou.</p>' +
+        '<p class="mudo" style="margin:0 0 12px">Nunca foram reprocessados: regra só vale para lançamento novo.</p>' +
+        '<button class="btn" id="btnLote">Revisar em lote</button>' +
+      '</div>'
+    : '';
+
+  $('tela').innerHTML = cartaoLote +
+    '<div class="cartao">' +
+      '<div class="tri-topo">' +
+        '<span class="tri-meta">' + UI.escapar(t.data) + ' · ' + UI.escapar(t.src || '') + '</span>' +
+        '<span class="tri-meta">' + (atual + 1) + ' de ' + restantes.length + '</span>' +
+      '</div>' +
+      '<p class="tri-desc">' + UI.escapar(t.descricao) + '</p>' +
+      '<p class="tri-valor valor">' + UI.BRL(t.valor) + '</p>' +
+      '<p class="tri-meta">falta: ' + M.motivoTriagem(t) + '</p>' +
+
+      '<div class="campo"><label for="selCat">Categoria</label>' +
+        '<select id="selCat">' + opcoesCategoria(s ? s.categoria_id : t.categoria_id) + '</select></div>' +
+      '<div class="campo"><label for="selCls">De quem é</label>' +
+        '<select id="selCls">' + opcoesCls(s ? s.cls : (M.faltaCls(t) ? '' : t.cls)) + '</select></div>' +
+
+      (s
+        ? '<p class="fonte regra">Sugerido pela regra <code>' + UI.escapar(s.regra.padrao) + '</code>. ' +
+          'Se estiver errado, corrija — é assim que ela aprende.</p>'
+        : '<p class="fonte nova">Primeira vez que vejo este lugar. O que você escolher vira regra.</p>') +
+
+      '<div class="acoes">' +
+        '<button class="btn" id="btnSalvar">' + (s ? 'Confirmar' : 'Salvar') + '</button>' +
+        '<button class="btn alt" id="btnPular">Pular</button>' +
+      '</div>' +
+      '<div id="erroSalvar"></div>' +
+    '</div>';
+
+  if ($('btnLote')) $('btnLote').onclick = telaLote;
+  $('btnPular').onclick = () => { pulados[t.id] = true; desenhar(); };
+
+  // "Mudar" é o evento que ensina, não "Confirmar" (spec §7). O rótulo do
+  // botão muda no instante em que a sugestão é contrariada, para a pessoa
+  // ver que aquilo vai virar aprendizado.
+  const marcarMudanca = () => {
+    if (!s) return;
+    $('btnSalvar').textContent = 'Salvar e corrigir a regra';
+  };
+  $('selCat').onchange = marcarMudanca;
+  $('selCls').onchange = marcarMudanca;
+
+  $('btnSalvar').onclick = () => salvar(t, s);
+}
+
+/* ------------------------------------------------------------------
+   Gravação
+   ------------------------------------------------------------------
+   O cartão NÃO avança até a gravação confirmar (spec §9). Se falhar, fica
+   onde está com o erro e "Tentar de novo". Não existe fila offline: a
+   falha que mais importa é perder classificação feita em sequência com
+   sinal ruim, e sumir com o trabalho em silêncio seria pior que travar. */
+async function salvar(t, sugestao) {
+  const catId = Number($('selCat').value) || null;
+  const cls = $('selCls').value || '';
+  const box = $('erroSalvar');
+
+  if (!catId || !cls) {
+    box.innerHTML = '<div class="erro-inline">Escolha a categoria e de quem é antes de salvar.</div>';
+    return;
+  }
+
+  const btn = $('btnSalvar');
+  const rotulo = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  $('btnPular').disabled = true;
+  box.innerHTML = '';
+
+  const r = await DB.classificar(t.id, { categoria_id: catId, cls: cls });
+
+  if (r.erro) {
+    btn.disabled = false; btn.textContent = rotulo;
+    $('btnPular').disabled = false;
+    box.innerHTML = '<div class="erro-inline">Não salvou: ' + UI.escapar(r.erro) +
+                    '<br>Nada foi perdido — o lançamento continua aqui.</div>';
+    return;
+  }
+
+  // Ensina a regra quando não havia sugestão, ou quando a sugestão foi
+  // contrariada. Confirmar sugestão certa não ensina nada.
+  const mudou = !sugestao || sugestao.categoria_id !== catId || sugestao.cls !== cls;
+  if (mudou) {
+    const c = catPorId(catId);
+    const re = await DB.ensinarRegra(t.descricao, catId, c ? c.nome : null, cls);
+    if (re.ok) REGRAS = await DB.regras(true);
+    else if (re.motivo === 'padrao-curto') {
+      UI.toast('Salvo. A descrição é curta demais para virar regra segura.');
+    }
+  }
+
+  // Espelha na memória para não reler 3.132 linhas a cada classificação.
+  const alvo = TX.find(x => x.id === t.id);
+  if (alvo) { alvo.categoria_id = catId; alvo.cls = cls; }
+  montarFila();
+  UI.toast(mudou ? 'Salvo e aprendido' : 'Confirmado');
+  desenhar();
+}
+
+/* ------------------------------------------------------------------
+   Varredura retroativa
+   ------------------------------------------------------------------
+   PROPOR, NUNCA APLICAR CALADO. Mexer em 102 lançamentos sem a pessoa ver
+   seria rápido e errado. */
+function telaLote() {
+  const itens = fila.filter(t => !pulados[t.id]).map(t => {
+    const s = sugestaoCompleta(t);
+    return s ? { t, s } : null;
+  }).filter(Boolean);
+
+  /* Marca as sugestões que vêm de regra genérica.
+     Lote é o modo em que a pessoa NÃO lê linha por linha — é justamente
+     onde uma regra abrangente faz o maior estrago. Encontrado em 06/08:
+     `PAGAMENTODEPIXQRCO` propunha 16 lançamentos de 12 estabelecimentos
+     diferentes, todos para Farmácia. Elas continuam aparecendo, mas
+     DESMARCADAS e com o motivo à vista — esconder seria pior. */
+  const porRegra = {};
+  itens.forEach(it => {
+    const p = it.s.regra.padrao;
+    (porRegra[p] = porRegra[p] || []).push(it.t.descricao);
+  });
+  itens.forEach(it => {
+    it.generica = M.regraEhGenerica(porRegra[it.s.regra.padrao]);
+  });
+  const nGenericas = itens.filter(i => i.generica).length;
+
+  $('tela').innerHTML =
+    '<div class="cartao">' +
+      '<h2 class="titulo" style="margin:0 0 4px">Aplicar regras já aprendidas</h2>' +
+      '<p class="mudo" style="margin:0 0 8px">' + itens.length +
+        ' lançamentos. Desmarque o que estiver errado — nada é gravado sem você mandar.</p>' +
+      (nGenericas
+        ? '<p class="honestidade" style="margin-bottom:10px">' + nGenericas +
+          ' vieram de regra genérica e já estão <b>desmarcados</b>: o padrão delas é só o ' +
+          'texto do banco, sem o nome do estabelecimento, então casam com lojas sem relação. ' +
+          'Marque uma a uma se conferir.</p>'
+        : '') +
+      '<div class="lista-lote">' +
+        itens.map((it, i) =>
+          '<label class="item-lote">' +
+            '<input type="checkbox"' + (it.generica ? '' : ' checked') + ' data-i="' + i + '">' +
+            '<span class="txt">' +
+              '<span class="d">' + UI.escapar(it.t.descricao) + '</span><br>' +
+              '<span class="s">' + UI.escapar(it.t.data) + ' · ' + UI.BRL(it.t.valor) + ' → ' +
+                UI.escapar(nomeCat(it.s.categoria_id)) + ' · ' + UI.escapar(M.rotulo(it.s.cls)) +
+                (it.generica
+                  ? '<br><b style="color:var(--badge-fg)">regra genérica (' +
+                    UI.escapar(it.s.regra.padrao) + ') — confira</b>'
+                  : '') +
+              '</span>' +
+            '</span>' +
+          '</label>').join('') +
+      '</div>' +
+      '<div class="acoes">' +
+        '<button class="btn" id="btnAplicar">Aplicar marcados</button>' +
+        '<button class="btn alt" id="btnCancelar">Voltar</button>' +
+      '</div>' +
+      '<p class="progresso" id="progresso"></p>' +
+      '<div id="erroLote"></div>' +
+    '</div>';
+
+  $('btnCancelar').onclick = desenhar;
+  $('btnAplicar').onclick = async () => {
+    const marcados = [...document.querySelectorAll('.item-lote input:checked')]
+      .map(cb => itens[Number(cb.dataset.i)]);
+    if (!marcados.length) { UI.toast('Nada marcado'); return; }
+
+    $('btnAplicar').disabled = true;
+    $('btnCancelar').disabled = true;
+
+    const r = await DB.aplicarLote(
+      marcados.map(m => ({ id: m.t.id, mudancas: { categoria_id: m.s.categoria_id, cls: m.s.cls } })),
+      (feitos, total) => { $('progresso').textContent = feitos + ' de ' + total; }
+    );
+
+    marcados.forEach(m => {
+      if (r.falhas.some(f => f.id === m.t.id)) return;
+      const alvo = TX.find(x => x.id === m.t.id);
+      if (alvo) { alvo.categoria_id = m.s.categoria_id; alvo.cls = m.s.cls; }
+    });
+    montarFila();
+
+    if (r.falhas.length) {
+      // Relatar o que falhou é o ponto: aplicar em lote e dizer "pronto"
+      // escondendo 3 erros seria o pior resultado possível.
+      $('erroLote').innerHTML = '<div class="erro-inline">' + r.ok + ' aplicados, ' +
+        r.falhas.length + ' falharam e continuam na fila.</div>';
+      $('btnCancelar').disabled = false;
+      $('btnCancelar').textContent = 'Voltar para a fila';
+    } else {
+      UI.toast(r.ok + ' aplicados');
+      desenhar();
+    }
+  };
+}
+
+/* ------------------------------------------------------------------
+   Início
+   ------------------------------------------------------------------ */
+async function carregar(forcar) {
+  try {
+    const d = await DB.tudo(forcar);
+    TX = d.tx; CATS = d.categorias; REGRAS = d.regras;
+    montarFila();
+    desenhar();
+  } catch (e) {
+    UI.erro($('tela'), e.message, () => carregar(true));
+    UI.montarNav('triar', 0);
+  }
+}
+
+(async function () {
+  const perfil = await UI.exigirSessao();
+  if (!perfil) return;
+  UI.puxarParaAtualizar(() => carregar(true));
+  await carregar(false);
+})();
+</script>
+</body>
+</html>

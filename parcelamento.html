@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="system">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Parcelamento · Finanças da Família</title>
+<meta name="theme-color" content="#2f6df0">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Finanças">
+<link rel="stylesheet" href="assets/app.css">
+<style>
+  .voltar { text-decoration:none; color:var(--muted); font-size:.9375rem;
+            min-height:var(--alvo); display:inline-flex; align-items:center; }
+  .mes { display:flex; align-items:center; gap:10px; padding:9px 0;
+         border-bottom:1px solid var(--border2); }
+  .mes:last-child { border-bottom:0; }
+  .mes .r { width:64px; color:var(--muted); font-size:.875rem; }
+  .mes .t { flex:1; height:8px; background:var(--border2); border-radius:4px; overflow:hidden; }
+  .mes .t i { display:block; height:100%; border-radius:4px; }
+  .mes .v { width:96px; text-align:right; }
+  .cfg { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .cfg label { display:block; color:var(--muted); font-size:.8125rem; margin-bottom:4px; }
+  .cfg input { width:132px; }
+  .aberta { display:flex; gap:10px; padding:9px 0; border-bottom:1px solid var(--border2); }
+  .aberta:last-child { border-bottom:0; }
+  .aberta .d { flex:1; min-width:0; font-size:.9375rem; word-break:break-word; }
+  .aberta .n { color:var(--muted); font-size:.8125rem; }
+</style>
+</head>
+<body>
+
+<div class="cabecalho">
+  <h1 class="titulo">Parcelamento</h1>
+  <a class="voltar" href="mais.html">‹ Mais</a>
+</div>
+
+<div class="envolucro" id="tela">
+  <div class="cartao"><div class="esqueleto"><div class="esq-linha"><div class="esq"></div></div></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/modelo.js"></script>
+<script src="assets/db.js"></script>
+<script src="assets/ui.js"></script>
+<script>
+'use strict';
+const $ = UI.$;
+let TX = [], CFG = {}, proj = null;
+
+function desenhar() {
+  UI.montarNav('mais', TX.filter(M.precisaTriagem).length);
+
+  const renda = Number(CFG.renda_ref) || 0;
+  const pct = Number(CFG.pct_parcela) || 20;
+  // O teto é quanto da renda você aceita ter comprometido com parcelas
+  // antes de considerar apertado. É régua sua, não regra do app.
+  const teto = renda * pct / 100;
+
+  const meses = proj.meses;
+  const pico = Math.max.apply(null, meses.map(m => proj.fut[m]).concat([teto, 1]));
+  const estouram = meses.filter(m => teto > 0 && proj.fut[m] > teto);
+
+  const serie = meses.map(m => ({ rotulo: M.rotuloMes(m), valor: proj.fut[m],
+                                  destaque: teto > 0 && proj.fut[m] > teto }));
+
+  $('tela').innerHTML =
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0">Já comprometido nos próximos 12 meses</p>' +
+      '<p class="heroi">' + UI.BRL0(proj.total) + '</p>' +
+      '<p class="heroi-sub">' + proj.abertas.length + ' compras parceladas ainda em aberto. ' +
+        'Isso já saiu do seu bolso futuro, mesmo sem você comprar mais nada.</p>' +
+    '</div>' +
+
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0 0 8px">Régua</p>' +
+      '<div class="cfg">' +
+        '<div><label for="renda">Renda de referência</label>' +
+          '<input id="renda" type="number" inputmode="decimal" step="100" value="' + renda + '"></div>' +
+        '<div><label for="pct">Teto em parcelas (%)</label>' +
+          '<input id="pct" type="number" inputmode="numeric" step="1" min="0" max="100" value="' + pct + '"></div>' +
+      '</div>' +
+      (teto > 0
+        ? '<p class="mudo" style="font-size:.8125rem;margin:10px 0 0">Teto de <b>' +
+          UI.BRL(teto) + '</b> por mês.' +
+          (estouram.length
+            ? ' <b style="color:var(--perigo)">' + estouram.length + ' ' +
+              (estouram.length === 1 ? 'mês passa' : 'meses passam') + ' disso:</b> ' +
+              estouram.map(M.rotuloMes).join(', ') + '.'
+            : ' Nenhum mês passa dele.') + '</p>'
+        : '<p class="mudo" style="font-size:.8125rem;margin:10px 0 0">Preencha a renda para ver o teto.</p>') +
+    '</div>' +
+
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0 0 4px">Projeção mês a mês</p>' +
+      UI.barrasComTendencia(serie, { titulo: 'Parcelas a vencer por mês' }) +
+      '<p class="mudo" style="font-size:.8125rem;margin:6px 0 10px">' +
+        UI.leituraDaTendencia(serie) + '</p>' +
+      meses.map(m => {
+        const v = proj.fut[m];
+        const acima = teto > 0 && v > teto;
+        return '<div class="mes">' +
+          '<span class="r">' + M.rotuloMes(m) + '</span>' +
+          '<span class="t"><i style="width:' + Math.round(v / pico * 100) + '%;background:' +
+            (acima ? 'var(--perigo)' : 'var(--acento)') + '"></i></span>' +
+          '<b class="v valor">' + UI.BRL(v) + '</b>' +
+        '</div>';
+      }).join('') +
+    '</div>' +
+
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0 0 8px">Compras ainda em aberto</p>' +
+      (proj.abertas.length
+        ? proj.abertas.slice(0, 40).map(o =>
+            '<div class="aberta">' +
+              '<span class="d">' + UI.escapar(o.descricao) +
+                '<div class="n">' + UI.escapar(o.parcela) + ' · faltam ' + o.restam +
+                  ' de ' + UI.BRL(o.valor) + '</div></span>' +
+              '<b class="valor">' + UI.BRL(o.total) + '</b>' +
+            '</div>').join('') +
+          (proj.abertas.length > 40
+            ? '<p class="mudo" style="font-size:.8125rem;margin:8px 0 0">Mostrando as 40 maiores de ' +
+              proj.abertas.length + ' — o total acima considera todas.</p>' : '')
+        : '<p class="mudo">Nenhuma compra parcelada em aberto.</p>') +
+    '</div>';
+
+  const gestor = DB.ehGestor();
+  ['renda', 'pct'].forEach(id => {
+    const el = $(id);
+    // A régua é do gestor; a colab vê o número mas não mexe.
+    el.disabled = !gestor;
+    el.onchange = async () => {
+      const chave = id === 'renda' ? 'renda_ref' : 'pct_parcela';
+      const r = await DB.salvarConfig(chave, String(Number(el.value) || 0));
+      if (r.erro) { UI.toast('Não salvou: ' + r.erro, 'erro'); return; }
+      CFG[chave] = Number(el.value) || 0;
+      UI.toast('Régua atualizada');
+      desenhar();
+    };
+  });
+}
+
+async function carregar(forcar) {
+  try {
+    const d = await DB.tudo(forcar);
+    TX = d.tx;
+    (await DB.config(forcar)).forEach(r => { CFG[r.chave] = Number(r.valor); });
+    // Só o que a família paga: parcela de empresa é outra conta.
+    proj = M.projecaoParcelas(TX.filter(t => M.ehCustoDeVida(t)), 12);
+    desenhar();
+  } catch (e) { UI.erro($('tela'), e.message, () => carregar(true)); }
+}
+
+(async function () {
+  const perfil = await UI.exigirSessao();
+  if (!perfil) return;
+  UI.puxarParaAtualizar(() => carregar(true));
+  await carregar(false);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="system">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Início · Finanças da Família</title>
+<meta name="theme-color" content="#2f6df0">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Finanças">
+<link rel="stylesheet" href="assets/app.css">
+<style>
+  .mes-nav { display:flex; align-items:center; gap:8px; }
+  .mes-nav button { min-width:var(--alvo); }
+  .mes-atual { font-weight:600; min-width:78px; text-align:center; }
+  .aviso-mes { color:var(--badge-fg); background:var(--badge-bg);
+               padding:8px 10px; border-radius:8px; font-size:.8125rem; margin:0 0 12px; }
+  .linha-grupo { display:flex; align-items:baseline; gap:10px; padding:9px 0;
+                 border-bottom:1px solid var(--border2); }
+  .linha-grupo:last-child { border-bottom:0; }
+  .linha-grupo .nome { flex:1; min-width:0; }
+  .barra { height:4px; border-radius:2px; margin-top:5px; }
+  .anomalia { padding:10px 0; border-bottom:1px solid var(--border2); }
+  .anomalia:last-child { border-bottom:0; }
+  .anomalia .cab { font-weight:600; }
+  .anomalia .exp { color:var(--muted); font-size:.8125rem; }
+  .folego { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+  .selo-velho { color:var(--badge-fg); background:var(--badge-bg);
+                padding:2px 8px; border-radius:20px; font-size:.75rem; white-space:nowrap; }
+  .atalho { display:inline-block; margin-top:10px; font-weight:600; color:var(--acento);
+            text-decoration:none; min-height:var(--alvo); line-height:var(--alvo); }
+</style>
+</head>
+<body>
+
+<div class="cabecalho">
+  <h1 class="titulo">Início</h1>
+  <span class="frescor" id="frescor"></span>
+</div>
+
+<div class="envolucro" id="tela">
+  <div class="cartao"><div class="esqueleto"><div class="esq-linha"><div class="esq"></div></div></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/modelo.js"></script>
+<script src="assets/db.js"></script>
+<script src="assets/ui.js"></script>
+<script>
+'use strict';
+const $ = UI.$;
+let TX = [], CATS = [], PATR = [], MESES = [], mes = null;
+
+function grupoDe(t) {
+  const c = CATS.find(x => x.id === t.categoria_id);
+  return c ? c.grupo : null;
+}
+
+function doMes(m) { return TX.filter(t => M.ym(t.data) === m); }
+
+/* ------------------------------------------------------------------
+   Fôlego
+   ------------------------------------------------------------------
+   Patrimônio líquido dividido pelo custo de vida médio dos 3 últimos
+   meses. O BTG está preso como garantia do cartão, então não conta como
+   líquido — fôlego que inclui dinheiro que você não pode sacar é mentira
+   confortável. */
+function calcularFolego() {
+  const liquido = PATR.filter(p => p.liquido)
+                      .reduce((a, p) => a + (Number(p.valor) || 0), 0);
+  const ultimos = M.mesesAnteriores(mes, 2).concat([mes]);
+  const gastos = ultimos.map(m => M.custoDeVida(doMes(m))).filter(v => v > 0);
+  const media = gastos.length ? gastos.reduce((a, b) => a + b, 0) / gastos.length : 0;
+  return { liquido, media, meses: media ? liquido / media : null };
+}
+
+// O patrimônio é digitado à mão em 2 das 3 linhas (57% do total): o CDB e o
+// BTG não vêm pelo Open Finance — verificado em 06/08. Por isso o selo de
+// desatualização é requisito, não enfeite: sem ele Planejar e Início exibem
+// número velho com cara de número fresco.
+function idadeDoPatrimonio() {
+  const datas = PATR.map(p => p.atualizado_em || p.criado_em).filter(Boolean);
+  if (!datas.length) return null;
+  const maisNovo = datas.sort().reverse()[0];
+  return Math.floor((Date.now() - new Date(maisNovo).getTime()) / 86400000);
+}
+
+function desenhar() {
+  const tx = doMes(mes);
+  const custo = M.custoDeVida(tx);
+  const incerteza = M.incertezaDoMes(tx);
+  const pendentes = TX.filter(M.precisaTriagem).length;
+  const pendentesDoMes = tx.filter(M.precisaTriagem).length;
+
+  UI.montarNav('inicio', pendentes);
+  UI.marcarFrescor($('frescor'), 'tx');
+
+  const i = MESES.indexOf(mes);
+  const hoje = new Date().toISOString().slice(0, 7);
+
+  // Por grupo, só despesa da família. Empresas e movimentação respondem
+  // outra pergunta e poluiriam a resposta de "para onde foi meu dinheiro".
+  const porGrupo = {};
+  tx.filter(M.despesaFamiliar).forEach(t => {
+    const g = grupoDe(t);
+    if (!g || g === M.GRUPO_MOVIMENTACAO || g === M.GRUPO_RECEITAS) return;
+    porGrupo[g] = (porGrupo[g] || 0) + (Number(t.valor) || 0);
+  });
+  const grupos = Object.entries(porGrupo).sort((a, b) => b[1] - a[1]);
+  const maior = grupos.length ? grupos[0][1] : 1;
+
+  // Anomalias
+  const anteriores = M.mesesAnteriores(mes, 3).flatMap(doMes);
+  const fora = M.gruposAcimaDoNormal(tx, anteriores, grupoDe);
+  const parcelas = M.parcelasAVencer(tx);
+  const novas = M.assinaturasNovas(TX, mes);
+
+  const f = calcularFolego();
+  const idade = idadeDoPatrimonio();
+
+  $('tela').innerHTML =
+    // Mês
+    '<div class="cartao">' +
+      '<div class="mes-nav">' +
+        '<button class="btn alt" id="mesAnt" ' + (i >= MESES.length - 1 ? 'disabled' : '') + ' aria-label="Mês anterior">‹</button>' +
+        '<span class="mes-atual">' + M.rotuloMes(mes) + '</span>' +
+        '<button class="btn alt" id="mesProx" ' + (i <= 0 ? 'disabled' : '') + ' aria-label="Mês seguinte">›</button>' +
+      '</div>' +
+    '</div>' +
+
+    // Herói: custo de vida + a incerteza logo abaixo.
+    // Lidera com CLAREZA, não com trabalho: a lista de pendências como
+    // abertura foi avaliada e descartada — contradiz o objetivo de gastar
+    // menos tempo no app (spec §3).
+    '<div class="cartao">' +
+      (mes !== hoje && MESES[0] === mes
+        ? '<p class="aviso-mes">' + M.rotuloMes(hoje) + ' ainda não tem lançamentos. ' +
+          'Mostrando ' + M.rotuloMes(mes) + ', o mês mais recente com dado.</p>'
+        : '') +
+      '<p class="mudo" style="margin:0">Custo de vida</p>' +
+      '<p class="heroi">' + UI.BRL0(custo) + '</p>' +
+      (incerteza > 0
+        ? '<p class="heroi-sub">+ até <b>' + UI.BRL0(incerteza) + '</b> ainda sem classificar' +
+          ' · ' + pendentesDoMes + ' lançamento' + (pendentesDoMes === 1 ? '' : 's') + '</p>' +
+          '<a class="atalho" href="triar.html">Classificar agora →</a>'
+        : '<p class="heroi-sub">Nada sem classificar neste mês.</p>') +
+    '</div>' +
+
+    // Para onde foi
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0 0 8px">Para onde foi</p>' +
+      (grupos.length
+        ? grupos.map(([g, v]) =>
+            '<div class="linha-grupo">' +
+              '<span class="nome">' + UI.escapar(g) +
+                '<div class="barra" style="width:' + Math.max(4, Math.round(v / maior * 100)) + '%;' +
+                'background:' + (M.COR_GRUPO[g] || '#9aa3b2') + '"></div>' +
+              '</span>' +
+              '<b class="valor">' + UI.BRL(v) + '</b>' +
+            '</div>').join('')
+        : '<p class="mudo">Nada classificado neste mês ainda.</p>') +
+      (incerteza > 0
+        ? '<p class="honestidade">Calculado sobre ' +
+          UI.pct(M.percentualClassificado(tx)) + ' de ' + M.rotuloMes(mes) + '. ' +
+          UI.BRL(incerteza) + ' ainda sem classificar podem entrar aqui.</p>'
+        : '') +
+    '</div>' +
+
+    // O que fugiu do padrão
+    '<div class="cartao">' +
+      '<p class="mudo" style="margin:0 0 8px">O que fugiu do padrão</p>' +
+      (fora.length || parcelas.alerta || novas.length
+        ? fora.map(a =>
+            '<div class="anomalia"><div class="cab">' + UI.escapar(a.grupo) + ' · ' + UI.BRL(a.valor) + '</div>' +
+            '<div class="exp">' + a.razao.toFixed(1) + '× a média dos 3 meses anteriores (' +
+            UI.BRL(a.media) + ')</div></div>').join('') +
+          (parcelas.alerta
+            ? '<div class="anomalia"><div class="cab">' + UI.BRL(parcelas.total) + ' em parcelas já compradas</div>' +
+              '<div class="exp">Vão pesar nos próximos meses. Maior: ' +
+              UI.escapar(parcelas.itens[0].descricao) + ' (' + UI.escapar(parcelas.itens[0].parcela) + ')</div></div>'
+            : '') +
+          novas.map(n =>
+            '<div class="anomalia"><div class="cab">Cobrança nova recorrente: ' + UI.escapar(n.descricao) + '</div>' +
+            '<div class="exp">' + UI.BRL(n.valor) + ' · apareceu em 2 meses seguidos e não existia antes</div></div>').join('')
+        : '<p class="mudo" style="margin:0">Nada fora do normal em ' + M.rotuloMes(mes) + '.</p>') +
+    '</div>' +
+
+    // Fôlego — o MENOR card, uma linha. Importante, mas ansioso: o detalhe
+    // mora em Planejar (spec §3).
+    (DB.ehGestor()
+      ? '<div class="cartao">' +
+          '<div class="folego">' +
+            '<span class="mudo">Fôlego</span>' +
+            '<span><b class="sensivel">' +
+              (f.meses ? f.meses.toFixed(1).replace('.', ',') + ' meses' : '—') + '</b>' +
+              (idade != null && idade > 30
+                ? ' <span class="selo-velho">patrimônio de ' + idade + ' dias atrás</span>' : '') +
+            '</span>' +
+          '</div>' +
+          (idade != null && idade > 30
+            ? '<p class="honestidade">O CDB e o BTG são digitados à mão e somam 57% do ' +
+              'patrimônio — o Open Finance só entrega a conta corrente. Enquanto não ' +
+              'forem atualizados, este número é uma estimativa.</p>'
+            : '') +
+        '</div>'
+      : '');
+
+  const ant = $('mesAnt'), prox = $('mesProx');
+  if (ant) ant.onclick = () => { if (i < MESES.length - 1) { mes = MESES[i + 1]; desenhar(); } };
+  if (prox) prox.onclick = () => { if (i > 0) { mes = MESES[i - 1]; desenhar(); } };
+}
+
+async function carregar(forcar) {
+  try {
+    const d = await DB.tudo(forcar);
+    TX = d.tx; CATS = d.categorias; PATR = d.patrimonio || [];
+    MESES = M.mesesComDado(TX);
+    // Abre no mês mais recente COM DADO, não no mês do calendário. Hoje é
+    // 06/08 e o último lançamento é de 28/07: abrir em agosto mostraria
+    // R$ 0 e pareceria que ninguém gastou nada.
+    if (!mes || MESES.indexOf(mes) === -1) mes = MESES[0];
+    desenhar();
+  } catch (e) {
+    UI.erro($('tela'), e.message, () => carregar(true));
+    UI.montarNav('inicio', 0);
+  }
+}
+
+(async function () {
+  const perfil = await UI.exigirSessao();
+  if (!perfil) return;
+  UI.puxarParaAtualizar(() => carregar(true));
+  await carregar(false);
+})();
+</script>
+</body>
+</html>
