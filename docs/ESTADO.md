@@ -108,9 +108,14 @@ O cron das 7h de 07/08 gravou normalmente e o trigger da Fase 2 funcionou. A lin
 entrou (`Débito automático PERS INFINIT`, R$ 6.928,22) chegou **já com `categoria_id` 48**
 e `cls` = `Não é gasto` — não caiu na fila. Verificação: 21 de 21. Não precisa de rollback.
 
-⚠️ Uma sobra: a asserção nº 1 do `sql/verificacao.sql` trava o total em `3132`, então ela
-vai acusar `FALHOU` todo dia que o cron rodar. Trocar por `>= 3132` para ela medir o que
-quer medir ("nenhuma transação foi perdida") em vez de virar ruído.
+A sobra que isso revelou já foi corrigida no mesmo dia: a asserção nº 1 travava o total em
+`3132` e ia acusar `FALHOU` todo dia que o cron rodasse. Agora `esperado` aceita **piso**:
+quando o valor começa com `>=`, a comparação é "maior ou igual" em vez de igualdade. A
+nº 1 virou `>= 3132` e o número real continua visível na coluna `obtido`, então dá para
+ver a base crescer. **Rodado depois da mudança: 22 de 22.**
+
+👉 Convenção para asserções novas: use piso para o que **cresce com o tempo**. Número
+travado em coisa que cresce vira ruído, e asserção que grita sozinha deixa de ser lida.
 
 ### 5. Pendências do Juarez
 

@@ -9,14 +9,22 @@
 -- Este arquivo é o único mecanismo de validação.
 --
 -- Uso: colar no SQL Editor do Supabase e rodar.
+--
+-- `esperado` normalmente é comparado por igualdade. Quando começa com
+-- `>=`, vira piso: passa se `obtido` for maior ou igual. Use o piso para
+-- o que CRESCE com o tempo — número travado ali acusa FALHOU todo dia que
+-- o cron rodar, e asserção que grita sozinha deixa de ser lida.
 -- =====================================================================
 
 with a as (
 
-  -- 1. Nenhuma transação foi perdida
-  select 1 as ord, 'Total de transações' as assercao,
+  -- 1. Nenhuma transação foi perdida.
+  --    Piso, não número exato: o cron das 7h insere todo dia. O que precisa
+  --    valer é que nada SUMA — 3132 era o total em 06/08/2026, depois da
+  --    migração. Se cair abaixo disso, alguma coisa apagou linha.
+  select 1 as ord, 'Total de transações (nunca menos que o piso)' as assercao,
          (select count(*) from transacoes)::text as obtido,
-         '3132' as esperado
+         '>= 3132' as esperado
 
   -- 2. Toda transação está classificada OU na fila. Nunca um 3º estado.
   union all select 2, 'Transações sem categoria (falta categoria_id)',
@@ -152,7 +160,16 @@ select ord as "#",
        ascerto.assercao,
        ascerto.esperado,
        ascerto.obtido,
-       case when ascerto.obtido = ascerto.esperado then 'PASSOU' else 'FALHOU' end as resultado
+       -- O CASE do Postgres avalia por curto-circuito, então o ::numeric só
+       -- roda nas linhas de piso — as outras podem trazer 'ok' ou 'true'
+       -- em `obtido` sem quebrar o cast.
+       case when ascerto.esperado like '>=%'
+              then case when ascerto.obtido::numeric
+                          >= btrim(replace(ascerto.esperado, '>=', ''))::numeric
+                        then 'PASSOU' else 'FALHOU' end
+            when ascerto.obtido = ascerto.esperado then 'PASSOU'
+            else 'FALHOU'
+       end as resultado
   from a as ascerto
  order by ord;
 
