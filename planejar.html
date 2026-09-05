@@ -21,6 +21,24 @@
   .meta input { width:112px; text-align:right; }
   .trilho { height:5px; border-radius:3px; background:var(--border2); margin-top:5px; overflow:hidden; }
   .trilho i { display:block; height:100%; border-radius:3px; }
+  /* Metas de economia */
+  .econ { padding:11px 0; border-bottom:1px solid var(--border2); }
+  .econ:last-of-type { border-bottom:0; }
+  .econ .topo { display:flex; gap:10px; align-items:baseline; }
+  .econ .nome { flex:1; min-width:0; font-weight:600; }
+  .econ .prazo { color:var(--muted); font-size:.8125rem; white-space:nowrap; }
+  .econ .valores { color:var(--muted); font-size:.8125rem; margin-top:2px; }
+  .econ .acoes { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+  .econ .acoes .btn { min-height:36px; padding:0 12px; font-size:.875rem; }
+  .econ .selo-ok { color:var(--ok); font-weight:600; font-size:.8125rem; }
+  .novaecon { display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; margin-top:4px; }
+  .novaecon label { display:block; color:var(--muted); font-size:.8125rem; margin-bottom:4px; }
+  .novaecon .campo-nome { flex:2 1 160px; }
+  .novaecon .campo-nome input { width:100%; }
+  .novaecon .campo-alvo { flex:1 1 110px; }
+  .novaecon .campo-alvo input { width:100%; }
+  .novaecon .campo-prazo { flex:1 1 150px; }
+  .novaecon .campo-prazo input { width:100%; }
   .patr { display:flex; gap:10px; align-items:center; padding:11px 0;
           border-bottom:1px solid var(--border2); }
   .patr:last-of-type { border-bottom:0; }
@@ -49,7 +67,7 @@
 <script>
 'use strict';
 const $ = UI.$;
-let TX = [], CATS = [], PATR = [], METAS = [], MESES = [];
+let TX = [], CATS = [], PATR = [], METAS = [], MESES = [], METAS_ECON = [];
 
 function grupoDe(t) { const c = CATS.find(x => x.id === t.categoria_id); return c ? c.grupo : null; }
 function doMes(m) { return TX.filter(t => M.ym(t.data) === m); }
@@ -77,6 +95,62 @@ function idadeManual() {
   const datas = manuais.map(p => p.atualizado_em).filter(Boolean);
   if (!datas.length) return null;
   return Math.floor((Date.now() - new Date(datas.sort().reverse()[0]).getTime()) / 86400000);
+}
+
+// Metas de ECONOMIA (reserva, viagem, etc.) — poupança com alvo e prazo,
+// diferente do orçamento acima, que são tetos de gasto por grupo.
+function cartaoMetasEconomia() {
+  const totalAlvo = METAS_ECON.reduce((a, m) => a + (Number(m.alvo) || 0), 0);
+  const totalGuardado = METAS_ECON.reduce((a, m) => a + (Number(m.guardado) || 0), 0);
+
+  const lista = METAS_ECON.length
+    ? METAS_ECON.map(m => {
+        const alvo = Number(m.alvo) || 0;
+        const guardado = Math.max(0, Number(m.guardado) || 0);
+        const frac = alvo ? Math.min(1, guardado / alvo) : 0;
+        const concluida = alvo > 0 && guardado >= alvo;
+        const cor = concluida ? 'var(--ok)' : 'var(--acento)';
+        return '<div class="econ">' +
+          '<div class="topo">' +
+            '<span class="nome">' + UI.escapar(m.nome || 'Meta') + '</span>' +
+            (m.prazo ? '<span class="prazo">até ' + UI.escapar(M.rotuloMes(m.prazo)) + '</span>' : '') +
+          '</div>' +
+          '<div class="valores">' +
+            (concluida
+              ? '<span class="selo-ok">✓ Meta alcançada</span> · ' + UI.BRL(guardado)
+              : UI.BRL(guardado) + ' de ' + UI.BRL(alvo) +
+                ' · faltam ' + UI.BRL(Math.max(0, alvo - guardado))) +
+          '</div>' +
+          '<div class="trilho"><i style="width:' + Math.round(frac * 100) + '%;background:' + cor + '"></i></div>' +
+          '<div class="acoes">' +
+            '<button class="btn alt" data-dep="' + m.id + '">Depositar</button>' +
+            '<button class="btn alt" data-ret="' + m.id + '">Retirar</button>' +
+            '<button class="btn alt" data-editar="' + m.id + '">Editar</button>' +
+            '<button class="btn perigo" data-apagar="' + m.id + '">Apagar</button>' +
+          '</div>' +
+        '</div>';
+      }).join('')
+    : '<p class="mudo" style="margin:0 0 8px">Nenhuma meta ainda. Crie uma reserva de ' +
+      'emergência ou um objetivo (viagem, troca de carro) e acompanhe o progresso.</p>';
+
+  return '<div class="cartao">' +
+    '<p class="mudo" style="margin:0 0 8px">Metas de economia' +
+      (METAS_ECON.length ? ' · ' + UI.BRL(totalGuardado) + ' guardados de ' + UI.BRL(totalAlvo) : '') +
+    '</p>' +
+    lista +
+    '<div style="border-top:1px solid var(--border2);margin-top:12px;padding-top:12px">' +
+      '<p class="mudo" style="margin:0 0 8px">Nova meta</p>' +
+      '<div class="novaecon">' +
+        '<div class="campo-nome"><label for="ec-nome">Nome</label>' +
+          '<input id="ec-nome" type="text" maxlength="60" placeholder="Reserva de emergência"></div>' +
+        '<div class="campo-alvo"><label for="ec-alvo">Alvo (R$)</label>' +
+          '<input id="ec-alvo" type="number" inputmode="decimal" step="100" min="0" placeholder="15000"></div>' +
+        '<div class="campo-prazo"><label for="ec-prazo">Prazo (opcional)</label>' +
+          '<input id="ec-prazo" type="month" aria-label="Prazo da meta"></div>' +
+      '</div>' +
+      '<button class="btn" id="ec-criar" style="margin-top:10px">Criar meta</button>' +
+    '</div>' +
+  '</div>';
 }
 
 function desenhar() {
@@ -140,6 +214,9 @@ function desenhar() {
       '<p class="mudo" style="font-size:.8125rem;margin:10px 0 0">Sai do campo e salva. ' +
         'Deixe em branco para não ter meta naquele grupo.</p>' +
     '</div>' +
+
+    // Metas de economia
+    cartaoMetasEconomia() +
 
     // Patrimônio
     '<div class="cartao">' +
@@ -208,6 +285,106 @@ function desenhar() {
       desenhar();
     };
   });
+
+  ligarMetasEconomia();
+}
+
+// Persiste o array inteiro e relê do banco — mesmo padrão do orçamento e do
+// patrimônio: a tela nunca avança sem a gravação confirmar.
+async function persistirMetasEcon(proximo, msgOk) {
+  const r = await DB.salvarMetasEconomia(proximo);
+  if (r.erro) { UI.toast('Não salvou: ' + r.erro, 'erro'); return false; }
+  METAS_ECON = await DB.metasEconomia(true);
+  UI.toast(msgOk);
+  desenhar();
+  return true;
+}
+
+function metaEconPorId(id) {
+  return METAS_ECON.filter(m => String(m.id) === String(id))[0] || null;
+}
+
+function ligarMetasEconomia() {
+  const btnCriar = $('ec-criar');
+  if (btnCriar) btnCriar.onclick = async () => {
+    const nome = ($('ec-nome').value || '').trim();
+    const alvo = Number($('ec-alvo').value);
+    const prazoBruto = ($('ec-prazo').value || '').trim();     // 'AAAA-MM' do input month
+    if (!nome) { UI.toast('Dê um nome para a meta', 'erro'); return; }
+    if (!(alvo > 0)) { UI.toast('O alvo precisa ser maior que zero', 'erro'); return; }
+    const nova = {
+      id: 'me_' + Date.now(),
+      nome: nome.slice(0, 60),
+      alvo: Math.round(alvo * 100) / 100,
+      guardado: 0,
+      prazo: prazoBruto ? prazoBruto + '-01' : ''
+    };
+    btnCriar.disabled = true;
+    await persistirMetasEcon(METAS_ECON.concat([nova]), 'Meta criada');
+  };
+
+  document.querySelectorAll('[data-dep]').forEach(el => {
+    el.onclick = async () => {
+      const m = metaEconPorId(el.dataset.dep);
+      if (!m) return;
+      const v = pedirValor('Quanto depositar em "' + m.nome + '"?');
+      if (v == null) return;
+      const proximo = METAS_ECON.map(x =>
+        x.id === m.id ? Object.assign({}, x, { guardado: (Number(x.guardado) || 0) + v }) : x);
+      el.disabled = true;
+      await persistirMetasEcon(proximo, 'Depósito registrado');
+    };
+  });
+
+  document.querySelectorAll('[data-ret]').forEach(el => {
+    el.onclick = async () => {
+      const m = metaEconPorId(el.dataset.ret);
+      if (!m) return;
+      const v = pedirValor('Quanto retirar de "' + m.nome + '"?');
+      if (v == null) return;
+      const novoGuardado = Math.max(0, (Number(m.guardado) || 0) - v);
+      const proximo = METAS_ECON.map(x =>
+        x.id === m.id ? Object.assign({}, x, { guardado: novoGuardado }) : x);
+      el.disabled = true;
+      await persistirMetasEcon(proximo, 'Retirada registrada');
+    };
+  });
+
+  document.querySelectorAll('[data-editar]').forEach(el => {
+    el.onclick = async () => {
+      const m = metaEconPorId(el.dataset.editar);
+      if (!m) return;
+      const nome = prompt('Nome da meta:', m.nome);
+      if (nome == null) return;
+      const alvoTxt = prompt('Valor alvo (R$):', String(m.alvo));
+      if (alvoTxt == null) return;
+      const alvo = Number(String(alvoTxt).replace(',', '.'));
+      if (!(alvo > 0)) { UI.toast('Alvo inválido', 'erro'); return; }
+      const proximo = METAS_ECON.map(x =>
+        x.id === m.id ? Object.assign({}, x, { nome: (nome.trim() || x.nome).slice(0, 60), alvo: Math.round(alvo * 100) / 100 }) : x);
+      el.disabled = true;
+      await persistirMetasEcon(proximo, 'Meta atualizada');
+    };
+  });
+
+  document.querySelectorAll('[data-apagar]').forEach(el => {
+    el.onclick = async () => {
+      const m = metaEconPorId(el.dataset.apagar);
+      if (!m) return;
+      if (!confirm('Apagar a meta "' + m.nome + '"? O valor guardado é só um registro aqui, não mexe em conta nenhuma.')) return;
+      el.disabled = true;
+      await persistirMetasEcon(METAS_ECON.filter(x => x.id !== m.id), 'Meta apagada');
+    };
+  });
+}
+
+// Lê um valor em reais do usuário. Devolve número > 0 ou null se cancelar/inválido.
+function pedirValor(rotulo) {
+  const txt = prompt(rotulo + ' (R$)');
+  if (txt == null) return null;
+  const v = Number(String(txt).replace(',', '.').trim());
+  if (!(v > 0)) { UI.toast('Valor inválido', 'erro'); return null; }
+  return Math.round(v * 100) / 100;
 }
 
 async function carregar(forcar) {
@@ -215,6 +392,7 @@ async function carregar(forcar) {
     const d = await DB.tudo(forcar);
     TX = d.tx; CATS = d.categorias; PATR = d.patrimonio || [];
     METAS = await DB.metas(forcar);
+    METAS_ECON = await DB.metasEconomia(forcar);
     MESES = M.mesesComDado(TX);
     desenhar();
   } catch (e) {
