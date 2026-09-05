@@ -30,6 +30,9 @@
                 padding:2px 8px; border-radius:20px; font-size:.75rem; white-space:nowrap; }
   .atalho { display:inline-block; margin-top:10px; font-weight:600; color:var(--acento);
             text-decoration:none; min-height:var(--alvo); line-height:var(--alvo); }
+  .diario .valor-dia { font-family:'DM Sans',system-ui,sans-serif; font-size:1.75rem;
+                       font-weight:700; letter-spacing:-.02em; margin:2px 0; }
+  .diario.no-vermelho .valor-dia { color:var(--perigo); }
 </style>
 </head>
 <body>
@@ -50,7 +53,7 @@
 <script>
 'use strict';
 const $ = UI.$;
-let TX = [], CATS = [], PATR = [], MESES = [], mes = null;
+let TX = [], CATS = [], PATR = [], MESES = [], METAS = [], mes = null;
 
 function grupoDe(t) {
   const c = CATS.find(x => x.id === t.categoria_id);
@@ -84,6 +87,67 @@ function idadeDoPatrimonio() {
   if (!datas.length) return null;
   const maisNovo = datas.sort().reverse()[0];
   return Math.floor((Date.now() - new Date(maisNovo).getTime()) / 86400000);
+}
+
+/* ------------------------------------------------------------------
+   Quanto dá para gastar por dia até o fim do mês
+   ------------------------------------------------------------------
+   (Teto total do mês − já gasto no mês) ÷ dias que faltam. O teto total é a
+   soma dos orçamentos por grupo (`metas`) definidos em Planejar.
+
+   É uma ESTIMATIVA LINEAR e a tela diz isso: não desconta contas fixas que
+   ainda vão cair no mês, então o número real por dia tende a ser menor. O
+   app tem a cultura de declarar a própria incerteza (as linhas "calculado
+   sobre X% do mês"), e este card segue a mesma regra em vez de fingir
+   precisão. Só aparece no mês corrente e quando há orçamento definido —
+   sem teto não existe "fechar no azul" para mirar. */
+function metaDoGrupo(g) {
+  return METAS.filter(m => (m.grupo || m.categoria) === g)[0] || null;
+}
+
+function tetoTotalDoMes() {
+  var total = 0;
+  M.GRUPOS_DESPESA.forEach(function (g) {
+    var m = metaDoGrupo(g);
+    if (m && Number(m.valor_mes) > 0) total += Number(m.valor_mes);
+  });
+  return total;
+}
+
+// Dias que ainda faltam no mês corrente, contando hoje. Em mês passado
+// (visão histórica) não se aplica.
+function diasRestantesDoMes() {
+  var hoje = new Date();
+  var ano = hoje.getFullYear(), mesN = hoje.getMonth();     // 0-11
+  var ultimoDia = new Date(ano, mesN + 1, 0).getDate();
+  return Math.max(1, ultimoDia - hoje.getDate() + 1);
+}
+
+function cartaoGastoPorDia(gastoDoMes) {
+  if (mes !== MESES[0]) return '';                          // só o mês corrente
+  var hojeYm = new Date().toISOString().slice(0, 7);
+  if (mes !== hojeYm) return '';                            // e só se o mês corrente for o de calendário
+  var teto = tetoTotalDoMes();
+  if (!(teto > 0)) return '';                               // sem orçamento não há alvo
+
+  var restante = teto - gastoDoMes;
+  var dias = diasRestantesDoMes();
+  var porDia = restante / dias;
+  var estourou = restante <= 0;
+
+  return '<div class="cartao diario' + (estourou ? ' no-vermelho' : '') + '">' +
+    '<p class="mudo" style="margin:0">Dá para gastar por dia' +
+      ' · faltam ' + dias + (dias === 1 ? ' dia' : ' dias') + ' no mês</p>' +
+    '<p class="valor-dia sensivel">' + (estourou ? UI.BRL0(0) : UI.BRL0(porDia)) + '</p>' +
+    '<p class="heroi-sub">' +
+      (estourou
+        ? 'O orçamento do mês já foi todo usado (' + UI.BRL(gastoDoMes) + ' de ' +
+          UI.BRL(teto) + '). Gastos daqui até o fim do mês passam do planejado.'
+        : UI.BRL(restante) + ' ainda no orçamento do mês, divididos pelos dias que faltam.') +
+    '</p>' +
+    '<p class="honestidade">Estimativa linear: divide o que resta igualmente pelos dias. ' +
+      'Não desconta contas fixas que ainda vão cair, então o valor real por dia costuma ser menor.</p>' +
+  '</div>';
 }
 
 function desenhar() {
@@ -146,6 +210,9 @@ function desenhar() {
           '<a class="atalho" href="triar.html">Classificar agora →</a>'
         : '<p class="heroi-sub">Nada sem classificar neste mês.</p>') +
     '</div>' +
+
+    // Quanto dá para gastar por dia (só mês corrente e com orçamento definido)
+    cartaoGastoPorDia(custo) +
 
     // Para onde foi
     '<div class="cartao">' +
@@ -215,6 +282,7 @@ async function carregar(forcar) {
   try {
     const d = await DB.tudo(forcar);
     TX = d.tx; CATS = d.categorias; PATR = d.patrimonio || [];
+    METAS = await DB.metas(forcar);
     MESES = M.mesesComDado(TX);
     // Abre no mês mais recente COM DADO, não no mês do calendário. Hoje é
     // 06/08 e o último lançamento é de 28/07: abrir em agosto mostraria
