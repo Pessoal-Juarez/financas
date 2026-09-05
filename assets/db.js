@@ -299,6 +299,33 @@
     return { ok: true };
   }
 
+  /* Metas de ECONOMIA (reserva de emergência, viagem, etc.) — diferente de
+     `metas`, que são tetos de GASTO por grupo. Guardadas como um único JSON
+     na tabela `config`, chave `metas_economia`: são poucas linhas, mudam por
+     ação do gestor e não precisam de tabela nem RLS próprios. `config` já é
+     só-gestor na prática (a tela Planejar exige gestor) e já tem cache.
+
+     Cada meta: { id, nome, alvo, guardado, prazo } — `prazo` é 'AAAA-MM-DD'
+     ou vazio. Ler sempre devolve um array; escrever sobrescreve o array
+     inteiro, como a própria tela faz com o estado em memória. */
+  function metasEconomia(forcar) {
+    return config(forcar).then(function (linhas) {
+      var linha = (linhas || []).filter(function (r) { return r.chave === 'metas_economia'; })[0];
+      if (!linha || !linha.valor) return [];
+      try {
+        var arr = JSON.parse(linha.valor);
+        return Array.isArray(arr) ? arr : [];
+      } catch (e) { return []; }   // valor corrompido não derruba a tela
+    });
+  }
+
+  async function salvarMetasEconomia(lista) {
+    var arr = Array.isArray(lista) ? lista : [];
+    var r = await salvarConfig('metas_economia', JSON.stringify(arr));
+    if (r.erro) return { erro: r.erro };
+    return { ok: true };
+  }
+
   // Só as linhas `fonte='manual'` fazem sentido editar aqui: a conta
   // corrente é sobrescrita pelo sync diário e o que for digitado sumiria
   // na manhã seguinte, sem aviso.
@@ -349,6 +376,7 @@
     classificar: classificar, ensinarRegra: ensinarRegra,
     aplicarLote: aplicarLote, criarCategoria: criarCategoria,
     metas: metas, salvarMeta: salvarMeta, apagarMeta: apagarMeta,
+    metasEconomia: metasEconomia, salvarMetasEconomia: salvarMetasEconomia,
     config: config, salvarConfig: salvarConfig,
     logAlteracoes: logAlteracoes, perguntas: perguntas, perguntar: perguntar,
     pedirSync: pedirSync, comandos: comandos,
