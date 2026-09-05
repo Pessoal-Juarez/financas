@@ -30,6 +30,15 @@
                 padding:2px 8px; border-radius:20px; font-size:.75rem; white-space:nowrap; }
   .atalho { display:inline-block; margin-top:10px; font-weight:600; color:var(--acento);
             text-decoration:none; min-height:var(--alvo); line-height:var(--alvo); }
+  .orc { padding:9px 0; border-bottom:1px solid var(--border2); }
+  .orc:last-child { border-bottom:0; }
+  .orc .cab { display:flex; align-items:baseline; gap:10px; }
+  .orc .nome { flex:1; min-width:0; font-weight:600; }
+  .orc .exp { color:var(--muted); font-size:.8125rem; margin-top:2px; }
+  .orc .trilho { height:5px; border-radius:3px; background:var(--border2); margin-top:5px; overflow:hidden; }
+  .orc .trilho i { display:block; height:100%; border-radius:3px; }
+  .orc .marca-estouro { color:var(--perigo); font-weight:600; }
+  .orc .marca-alerta { color:var(--badge-fg); font-weight:600; }
 </style>
 </head>
 <body>
@@ -50,7 +59,7 @@
 <script>
 'use strict';
 const $ = UI.$;
-let TX = [], CATS = [], PATR = [], MESES = [], mes = null;
+let TX = [], CATS = [], PATR = [], MESES = [], METAS = [], mes = null;
 
 function grupoDe(t) {
   const c = CATS.find(x => x.id === t.categoria_id);
@@ -84,6 +93,66 @@ function idadeDoPatrimonio() {
   if (!datas.length) return null;
   const maisNovo = datas.sort().reverse()[0];
   return Math.floor((Date.now() - new Date(maisNovo).getTime()) / 86400000);
+}
+
+/* ------------------------------------------------------------------
+   Orçamento em risco — alerta passivo, dentro do app
+   ------------------------------------------------------------------
+   Compara o gasto do mês visível com o teto por grupo definido em Planejar
+   (`metas`). Passivo de propósito: não há push nem notificação — o lembrete
+   de triagem por push foi avaliado e descartado (ESTADO.md, 07/08/2026), e
+   este segue a mesma linha. O card só existe quando há teto E algum grupo
+   chegou a 80% ou mais; sem isso fica silencioso, para não virar alarme
+   permanente que ninguém lê. Só faz sentido no mês corrente (o mais
+   recente): meses fechados não têm "estourar", já aconteceram. */
+var LIMIAR_ALERTA = 0.8;
+
+function metaDoGrupo(g) {
+  return METAS.filter(m => (m.grupo || m.categoria) === g)[0] || null;
+}
+
+function cartaoOrcamentoEmRisco(gastoPorGrupo) {
+  if (mes !== MESES[0]) return '';            // só o mês corrente
+  const linhas = [];
+  M.GRUPOS_DESPESA.forEach(g => {
+    const m = metaDoGrupo(g);
+    const teto = m ? Number(m.valor_mes) : 0;
+    if (!(teto > 0)) return;
+    const gasto = gastoPorGrupo[g] || 0;
+    const frac = gasto / teto;
+    if (frac < LIMIAR_ALERTA) return;
+    linhas.push({ grupo: g, gasto, teto, frac, estourou: gasto > teto });
+  });
+  if (!linhas.length) return '';
+  linhas.sort((a, b) => b.frac - a.frac);
+
+  const estouraram = linhas.filter(l => l.estourou).length;
+  const resumo = estouraram
+    ? estouraram + (estouraram === 1 ? ' grupo passou' : ' grupos passaram') + ' do orçamento'
+    : linhas.length + (linhas.length === 1 ? ' grupo está perto' : ' grupos estão perto') + ' do teto';
+
+  return '<div class="cartao">' +
+    '<p class="mudo" style="margin:0 0 8px">Orçamento em risco · ' + resumo + '</p>' +
+    linhas.map(l => {
+      const larg = Math.min(100, Math.round(l.frac * 100));
+      const cor = l.estourou ? 'var(--perigo)' : 'var(--badge-fg)';
+      return '<div class="orc">' +
+        '<div class="cab">' +
+          '<span class="nome">' + UI.escapar(l.grupo) + '</span>' +
+          '<span class="' + (l.estourou ? 'marca-estouro' : 'marca-alerta') + '">' +
+            Math.round(l.frac * 100) + '%</span>' +
+        '</div>' +
+        '<div class="exp">' + UI.BRL(l.gasto) + ' de ' + UI.BRL(l.teto) +
+          (l.estourou
+            ? ' · estourou em ' + UI.BRL(l.gasto - l.teto)
+            : ' · faltam ' + UI.BRL(l.teto - l.gasto)) + '</div>' +
+        '<div class="trilho"><i style="width:' + larg + '%;background:' + cor + '"></i></div>' +
+      '</div>';
+    }).join('') +
+    (DB.ehGestor()
+      ? '<a class="atalho" href="planejar.html">Ajustar orçamento →</a>'
+      : '') +
+  '</div>';
 }
 
 function desenhar() {
@@ -167,6 +236,9 @@ function desenhar() {
         : '') +
     '</div>' +
 
+    // Orçamento em risco (só aparece se houver teto e algum grupo em alerta)
+    cartaoOrcamentoEmRisco(porGrupo) +
+
     // O que fugiu do padrão
     '<div class="cartao">' +
       '<p class="mudo" style="margin:0 0 8px">O que fugiu do padrão</p>' +
@@ -215,6 +287,7 @@ async function carregar(forcar) {
   try {
     const d = await DB.tudo(forcar);
     TX = d.tx; CATS = d.categorias; PATR = d.patrimonio || [];
+    METAS = await DB.metas(forcar);
     MESES = M.mesesComDado(TX);
     // Abre no mês mais recente COM DADO, não no mês do calendário. Hoje é
     // 06/08 e o último lançamento é de 28/07: abrir em agosto mostraria
