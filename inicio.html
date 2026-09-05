@@ -17,9 +17,11 @@
   .aviso-mes { color:var(--badge-fg); background:var(--badge-bg);
                padding:8px 10px; border-radius:8px; font-size:.8125rem; margin:0 0 12px; }
   .linha-grupo { display:flex; align-items:baseline; gap:10px; padding:9px 0;
-                 border-bottom:1px solid var(--border2); }
+                 border-bottom:1px solid var(--border2);
+                 text-decoration:none; color:inherit; min-height:var(--alvo); }
   .linha-grupo:last-child { border-bottom:0; }
   .linha-grupo .nome { flex:1; min-width:0; }
+  .linha-grupo .seta-det { color:var(--muted); align-self:center; }
   .barra { height:4px; border-radius:2px; margin-top:5px; }
   .anomalia { padding:10px 0; border-bottom:1px solid var(--border2); }
   .anomalia:last-child { border-bottom:0; }
@@ -152,13 +154,18 @@ function desenhar() {
       '<p class="mudo" style="margin:0 0 8px">Para onde foi</p>' +
       (grupos.length
         ? grupos.map(([g, v]) =>
-            '<div class="linha-grupo">' +
+            // Clicar abre o detalhamento do grupo no mês visível. Link de
+            // verdade (não JS) para funcionar com toque, teclado e "abrir
+            // em nova aba", e para não travar quem só quer ver os números.
+            '<a class="linha-grupo" href="categoria.html?grupo=' + encodeURIComponent(g) +
+                '&mes=' + encodeURIComponent(mes) + '" aria-label="Detalhar ' + UI.escapar(g) + '">' +
               '<span class="nome">' + UI.escapar(g) +
                 '<div class="barra" style="width:' + Math.max(4, Math.round(v / maior * 100)) + '%;' +
                 'background:' + (M.COR_GRUPO[g] || '#9aa3b2') + '"></div>' +
               '</span>' +
               '<b class="valor">' + UI.BRL(v) + '</b>' +
-            '</div>').join('')
+              '<span class="seta-det" aria-hidden="true">›</span>' +
+            '</a>').join('')
         : '<p class="mudo">Nada classificado neste mês ainda.</p>') +
       (incerteza > 0
         ? '<p class="honestidade">Calculado sobre ' +
