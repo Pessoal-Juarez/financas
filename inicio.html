@@ -135,6 +135,11 @@ function cartaoGastoPorDia(gastoDoMes) {
   var porDia = restante / dias;
   var estourou = restante <= 0;
 
+  // Nos primeiros dias do mes o gasto acumulado e baixo (a fatura do
+  // cartao entra por competencia e ainda vai fechar), entao o 'por dia'
+  // sairia otimista demais. Avisamos quando a leitura e rasa.
+  var leituraRasa = new Date().getDate() <= 7;
+
   return '<div class="cartao diario' + (estourou ? ' no-vermelho' : '') + '">' +
     '<p class="mudo" style="margin:0">Dá para gastar por dia' +
       ' · faltam ' + dias + (dias === 1 ? ' dia' : ' dias') + ' no mês</p>' +
@@ -146,7 +151,11 @@ function cartaoGastoPorDia(gastoDoMes) {
         : UI.BRL(restante) + ' ainda no orçamento do mês, divididos pelos dias que faltam.') +
     '</p>' +
     '<p class="honestidade">Estimativa linear: divide o que resta igualmente pelos dias. ' +
-      'Não desconta contas fixas que ainda vão cair, então o valor real por dia costuma ser menor.</p>' +
+      'Não desconta contas fixas que ainda vão cair, então o valor real por dia costuma ser menor.' +
+      (leituraRasa
+        ? ' No comeco do mes a conta e otimista: boa parte dos gastos (fatura do cartao) ainda nem entrou.'
+        : '') +
+    '</p>' +
   '</div>';
 }
 
