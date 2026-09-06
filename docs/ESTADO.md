@@ -1,20 +1,36 @@
 # Onde paramos
 
-**Última atualização:** 07/08/2026, tarde.
+**Última atualização:** 05/09/2026.
 **Leia este arquivo primeiro** ao retomar o projeto.
 
 ---
 
 ## Em uma frase
 
-**A virada de chave foi feita em 07/08/2026: o app novo está no ar.** A `main` serve as
-13 telas, `index.html` é o login e o app antigo virou `legado.html`, sem link. O que
-falta é a **Fase B** e as **pendências da VPS**.
+App no ar desde 07/08/2026. Em set/2026 foram adicionadas quatro funcionalidades
+(metas de economia, alerta de orçamento, gasto por dia e detalhamento de grupo) e a
+**próxima grande frente é trocar o sync do Open Finance do MCP atual (Cumbuca) pelo
+Pluggy**, para atualização diária dos cartões.
+
+## Onde vive o projeto (GitHub)
+
+- **Repositório:** <https://github.com/Pessoal-Juarez/financas>
+- **No ar (GitHub Pages):** <https://pessoal-juarez.github.io/financas/>
+- **Branch de produção:** `main` — deploy automático por `git push` na `main`.
+- **Clone local nesta máquina:** `C:\Users\Samsung\Documents\Desenvolvimento\financas-prod`
+  (⚠️ não confundir com o projeto React separado em
+  `C:\Users\Samsung\Documents\Desenvolvimento\Finanças Pessoais`, que NÃO é este app).
+
+### Como retomar depois de fechar o editor
+
+1. Abrir a pasta `C:\Users\Samsung\Documents\Desenvolvimento\financas-prod`.
+2. Sincronizar: `git checkout main` e `git pull`.
+3. Ler este arquivo e `docs/workflow.md` para recuperar o contexto.
 
 ## Como rodar em 10 segundos
 
 ```bash
-cd C:\Users\Samsung\Documents\Claude\Projects\Pessoal\financas
+cd C:\Users\Samsung\Documents\Desenvolvimento\financas-prod
 python -m http.server 8777
 ```
 Abrir `http://localhost:8777/`. A sessão fica no `localStorage` do `localhost:8777`,
@@ -64,6 +80,42 @@ paginada, cache), `ui.js` (nav, toast, estados, gráficos), `app.css` (tokens, t
 ---
 
 ## O que falta
+
+### 0. Trocar o sync do Open Finance para o Pluggy (próxima grande frente)
+
+**Objetivo:** substituir o MCP atual (Cumbuca), na VPS, pelo **Pluggy**
+(<https://www.pluggy.ai/>), que agrega Open Finance Brasil e **atualiza os dados de
+cartão diariamente** — o ponto fraco do sync atual.
+
+Referências: <https://github.com/pluggyai> ·
+<https://github.com/pluggyai/meu-pluggy> · <https://github.com/pluggyai/quickstart> ·
+docs em <https://docs.pluggy.ai/>. (Conteúdo resumido/reescrito das fontes públicas para
+conformidade de licença.)
+
+Como o Pluggy funciona, em linhas gerais: obtém-se uma `apiKey` de servidor, gera-se um
+`connectToken` de curta duração, o usuário autoriza a conexão pelo widget **Pluggy
+Connect**, e os dados (contas, cartões, transações) passam a ser lidos pela API do Pluggy,
+que absorve as mudanças de cada instituição.
+
+⚠️ **Onde isso mora — importante para o planejamento:** o sync **não roda neste repositório
+(front HTML/JS estático)**. Ele vive na **VPS** (`/root/financas/`), com os crons e os
+scripts (`sync.sh`, `sync-cartao.sh`) que hoje usam o MCP do Cumbuca e escrevem em
+`transacoes` com a `service_role`. Migrar para o Pluggy é majoritariamente trabalho **na
+VPS**, que não está na máquina de desenvolvimento do front.
+
+Frentes prováveis (a detalhar quando a frente começar):
+
+| Onde | O quê |
+|---|---|
+| Conta Pluggy | Criar conta, obter `apiKey`; avaliar cobertura das instituições (Itaú, BTG, Nubank, InfinitePay) e o plano/custo |
+| VPS | Novo serviço/script que autentica no Pluggy, lê transações e grava em `transacoes` no mesmo formato atual (`data`, `descricao`, `valor`, `parcela`, `data_compra`, `src`, `cls`, `categoria_id`), preservando o motor de regras e o de-para |
+| VPS/segredos | `apiKey`/segredos do Pluggy no `.env` da VPS (chmod 600), **nunca** no repositório público |
+| Front | Talvez uma tela/fluxo para o usuário conectar a conta via Pluggy Connect (widget), se optarmos por conexão iniciada pelo usuário |
+| Dados | `data_compra` (hoje zerado desde mai/26 — ver pendência V1) pode voltar a vir preenchido pelo Pluggy; validar |
+
+Antes de codar: mapear o contrato de dados atual (o que a VPS grava hoje) e garantir que a
+saída do Pluggy seja normalizada para o mesmo formato, senão a triagem, as regras e a
+projeção de parcelas quebram.
 
 ### 1. Fase B — as três ideias aprovadas (vindas do Firefly III)
 
@@ -274,3 +326,58 @@ diferentes para Farmácia.
 
 **Uma regressão de ingestão descoberta:** `data_compra` parou em maio, degradando em
 silêncio o `dashboard.html` há três meses.
+
+
+---
+
+## Diário — 05/09/2026: quatro funcionalidades novas + correções
+
+Sessão focada em agregar valor ao app a partir de ideias garimpadas de um protótipo
+React separado (que NÃO foi para produção — só serviu de fonte de ideias). Cada entrega
+saiu como um PR próprio, para revisão isolada.
+
+**Entregue (mesclado na `main`):**
+
+- **Detalhamento de grupo** (PR #4). As linhas de "Para onde foi" no `inicio.html` viram
+  links para `categoria.html?grupo=<g>&mes=<AAAA-MM>`. A nova tela mostra total do grupo,
+  comparação com a média dos 3 meses anteriores, mini-gráfico de 6 meses (SVG puro),
+  quebra por subcategoria e a lista de lançamentos, com navegação de mês (‹ ›).
+- **Alerta passivo de orçamento** (PR #2). No `inicio.html`, quando um grupo atinge 80%+
+  do teto definido em Planejar, aparece um card listando os grupos em risco. Só no mês
+  mais recente com dado; passivo (sem push), coerente com a decisão de não ter service
+  worker.
+
+**Entregue (PRs abertos, aguardando merge):**
+
+- **Correção de Metas de economia** (PR #5, branch `corrige-metas-savings-goals`).
+  ⚠️ O PR #1 foi mesclado com a versão que salvava em `config`, mas **`config.valor` é
+  NUMERIC e não aceita JSON** (erro 22P02 em produção). A correção persiste em
+  `savings_goals` (tabela que já existia, da migração 20260824). **Mesclar este antes de
+  usar Metas.**
+- **Gasto por dia** (PR #6, branch `gasto-por-dia-v2`). Card no `inicio.html` com "quanto
+  dá para gastar por dia até o fim do mês" = (soma dos tetos − gasto do mês) ÷ dias
+  restantes. Só no mês corrente e com orçamento; avisa quando a leitura é rasa (começo do
+  mês). Substitui o PR #3 (fechado por conflito, reimplementado sobre a `main` atual).
+
+**Feature nova de interface:** Metas de economia em `planejar.html` (só gestor) —
+reserva/objetivos com alvo, prazo, progresso e depósito/retirada. Persistência em
+`savings_goals` (ver PR #5).
+
+**Dados tocados em produção (com autorização):**
+- Criada a meta "Reserva de emergência" (R$ 72.000) em `savings_goals`.
+- Limpadas ~14 linhas de seed duplicadas em `savings_goals` (sobrou só a Reserva de
+  emergência).
+
+**Descobertas de manutenção:**
+- Existem **duas** tabelas de perfil no banco: `perfis` (usada pelo RLS) e `profiles`
+  (consultada pelo `db.js`). Ambas têm o registro do gestor, por isso o app funciona —
+  mas coexistirem é uma pegadinha; vale unificar algum dia.
+- `config.valor` é NUMERIC (não guarda texto/JSON).
+- A tabela `savings_goals` já está em produção e é o lugar certo para metas de economia.
+
+**Próxima grande frente:** trocar o Open Finance para o **Pluggy** — ver "O que falta ›
+item 0". É trabalho majoritariamente na VPS.
+
+**Convenção reforçada nesta sessão:** ao editar arquivos com acentos por script, gravar
+como **UTF-8 sem BOM** (`[System.IO.File]::WriteAllText` com `UTF8Encoding($false)`);
+`Set-Content -Encoding UTF8` corrompe acentos e injeta BOM.
