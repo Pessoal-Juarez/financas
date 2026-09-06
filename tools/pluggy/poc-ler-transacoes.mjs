@@ -106,15 +106,27 @@ async function listarContas(apiKey, itemId) {
 
 // Paginação por cursor (páginas de 500), conforme a doc.
 async function listarTransacoes(apiKey, accountId) {
+  // v2/transactions rejeita 'pageSize' como parametro (default ja e 500).
   let todas = [];
-  let path = `/v2/transactions?accountId=${accountId}&pageSize=500`;
+  let path = `/v2/transactions?accountId=${accountId}`;
   for (let guarda = 0; guarda < 50 && path; guarda++) {
     const r = await api(path, { apiKey });
     const lote = (r && r.results) || [];
     todas = todas.concat(lote);
-    path = r && r.next ? (r.next.startsWith('http') ? r.next.replace(BASE, '') : `/v2/transactions${r.next}`) : null;
+    path = montarProximo(r && r.next);
   }
   return todas;
+}
+
+// O campo `next` da paginacao por cursor pode vir como URL absoluta, como
+// caminho ('/v2/transactions?...') ou como fragmento ('?accountId=...').
+// Normalizamos para um caminho que comeca com '/'.
+function montarProximo(next) {
+  if (!next) return null;
+  if (next.startsWith('http')) return next.replace(BASE, '');
+  if (next.startsWith('/')) return next;
+  if (next.startsWith('?')) return `/v2/transactions${next}`;
+  return `/${next}`;
 }
 
 // ------------------------------------------------------------------
