@@ -113,7 +113,10 @@ function cartaoMetasEconomia() {
         return '<div class="econ">' +
           '<div class="topo">' +
             '<span class="nome">' + UI.escapar(m.nome || 'Meta') + '</span>' +
-            (m.prazo ? '<span class="prazo">até ' + UI.escapar(M.rotuloMes(m.prazo)) + '</span>' : '') +
+            // '2099-...' é o sentinela de "sem prazo" (deadline_date é NOT NULL
+            // no banco); não mostramos como prazo real.
+            (m.prazo && m.prazo.slice(0, 4) !== '2099'
+              ? '<span class="prazo">até ' + UI.escapar(M.rotuloMes(m.prazo)) + '</span>' : '') +
           '</div>' +
           '<div class="valores">' +
             (concluida
@@ -289,11 +292,11 @@ function desenhar() {
   ligarMetasEconomia();
 }
 
-// Persiste o array inteiro e relê do banco — mesmo padrão do orçamento e do
-// patrimônio: a tela nunca avança sem a gravação confirmar.
-async function persistirMetasEcon(proximo, msgOk) {
-  const r = await DB.salvarMetasEconomia(proximo);
-  if (r.erro) { UI.toast('Não salvou: ' + r.erro, 'erro'); return false; }
+// Relê do banco e redesenha. Mesmo padrão do orçamento e do patrimônio: a
+// tela só reflete o estado depois da gravação confirmar (fonte da verdade é
+// o banco). Cada meta é uma linha em savings_goals; as operações são por id.
+async function recarregarMetasEcon(resultado, msgOk) {
+  if (resultado && resultado.erro) { UI.toast('Não salvou: ' + resultado.erro, 'erro'); return false; }
   METAS_ECON = await DB.metasEconomia(true);
   UI.toast(msgOk);
   desenhar();
@@ -312,15 +315,13 @@ function ligarMetasEconomia() {
     const prazoBruto = ($('ec-prazo').value || '').trim();     // 'AAAA-MM' do input month
     if (!nome) { UI.toast('Dê um nome para a meta', 'erro'); return; }
     if (!(alvo > 0)) { UI.toast('O alvo precisa ser maior que zero', 'erro'); return; }
-    const nova = {
-      id: 'me_' + Date.now(),
+    btnCriar.disabled = true;
+    const r = await DB.criarMetaEconomia({
       nome: nome.slice(0, 60),
       alvo: Math.round(alvo * 100) / 100,
-      guardado: 0,
       prazo: prazoBruto ? prazoBruto + '-01' : ''
-    };
-    btnCriar.disabled = true;
-    await persistirMetasEcon(METAS_ECON.concat([nova]), 'Meta criada');
+    });
+    await recarregarMetasEcon(r, 'Meta criada');
   };
 
   document.querySelectorAll('[data-dep]').forEach(el => {
@@ -329,10 +330,9 @@ function ligarMetasEconomia() {
       if (!m) return;
       const v = pedirValor('Quanto depositar em "' + m.nome + '"?');
       if (v == null) return;
-      const proximo = METAS_ECON.map(x =>
-        x.id === m.id ? Object.assign({}, x, { guardado: (Number(x.guardado) || 0) + v }) : x);
       el.disabled = true;
-      await persistirMetasEcon(proximo, 'Depósito registrado');
+      const r = await DB.ajustarGuardadoMetaEconomia(m.id, v);
+      await recarregarMetasEcon(r, 'Depósito registrado');
     };
   });
 
@@ -342,11 +342,9 @@ function ligarMetasEconomia() {
       if (!m) return;
       const v = pedirValor('Quanto retirar de "' + m.nome + '"?');
       if (v == null) return;
-      const novoGuardado = Math.max(0, (Number(m.guardado) || 0) - v);
-      const proximo = METAS_ECON.map(x =>
-        x.id === m.id ? Object.assign({}, x, { guardado: novoGuardado }) : x);
       el.disabled = true;
-      await persistirMetasEcon(proximo, 'Retirada registrada');
+      const r = await DB.ajustarGuardadoMetaEconomia(m.id, -v);
+      await recarregarMetasEcon(r, 'Retirada registrada');
     };
   });
 
@@ -360,10 +358,12 @@ function ligarMetasEconomia() {
       if (alvoTxt == null) return;
       const alvo = Number(String(alvoTxt).replace(',', '.'));
       if (!(alvo > 0)) { UI.toast('Alvo inválido', 'erro'); return; }
-      const proximo = METAS_ECON.map(x =>
-        x.id === m.id ? Object.assign({}, x, { nome: (nome.trim() || x.nome).slice(0, 60), alvo: Math.round(alvo * 100) / 100 }) : x);
       el.disabled = true;
-      await persistirMetasEcon(proximo, 'Meta atualizada');
+      const r = await DB.atualizarMetaEconomia(m.id, {
+        nome: (nome.trim() || m.nome).slice(0, 60),
+        alvo: Math.round(alvo * 100) / 100
+      });
+      await recarregarMetasEcon(r, 'Meta atualizada');
     };
   });
 
@@ -373,7 +373,8 @@ function ligarMetasEconomia() {
       if (!m) return;
       if (!confirm('Apagar a meta "' + m.nome + '"? O valor guardado é só um registro aqui, não mexe em conta nenhuma.')) return;
       el.disabled = true;
-      await persistirMetasEcon(METAS_ECON.filter(x => x.id !== m.id), 'Meta apagada');
+      const r = await DB.apagarMetaEconomia(m.id);
+      await recarregarMetasEcon(r, 'Meta apagada');
     };
   });
 }
