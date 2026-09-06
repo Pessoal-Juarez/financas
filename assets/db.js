@@ -300,29 +300,90 @@
   }
 
   /* Metas de ECONOMIA (reserva de emergência, viagem, etc.) — diferente de
-     `metas`, que são tetos de GASTO por grupo. Guardadas como um único JSON
-     na tabela `config`, chave `metas_economia`: são poucas linhas, mudam por
-     ação do gestor e não precisam de tabela nem RLS próprios. `config` já é
-     só-gestor na prática (a tela Planejar exige gestor) e já tem cache.
+     `metas`, que são tetos de GASTO por grupo. Persistidas na tabela
+     `savings_goals`, criada para isso na migração 20260824. A coluna
+     `config.valor` é NUMERIC, então config não serve para guardar metas.
 
-     Cada meta: { id, nome, alvo, guardado, prazo } — `prazo` é 'AAAA-MM-DD'
-     ou vazio. Ler sempre devolve um array; escrever sobrescreve o array
-     inteiro, como a própria tela faz com o estado em memória. */
+     A tela trabalha com { id, nome, alvo, guardado, prazo }. Aqui traduzimos
+     de/para as colunas reais: name, target_amount, current_amount,
+     deadline_date, status. `status` = 'CANCELLED' é tratado como apagado e
+     não volta na leitura. Cada meta é uma LINHA — operações são por id, não
+     sobrescrita de um array inteiro. */
+  function mapearMetaEconomia(row) {
+    return {
+      id: row.id,
+      nome: row.name || 'Meta',
+      alvo: Number(row.target_amount) || 0,
+      guardado: Number(row.current_amount) || 0,
+      prazo: row.deadline_date || ''
+    };
+  }
+
   function metasEconomia(forcar) {
-    return config(forcar).then(function (linhas) {
-      var linha = (linhas || []).filter(function (r) { return r.chave === 'metas_economia'; })[0];
-      if (!linha || !linha.valor) return [];
-      try {
-        var arr = JSON.parse(linha.valor);
-        return Array.isArray(arr) ? arr : [];
-      } catch (e) { return []; }   // valor corrompido não derruba a tela
+    return comCache('savings', function () {
+      return lerTudo('savings_goals', [['created_at', true]]);
+    }, forcar).then(function (linhas) {
+      return (linhas || [])
+        .filter(function (r) { return r.status !== 'CANCELLED'; })
+        .map(mapearMetaEconomia);
     });
   }
 
-  async function salvarMetasEconomia(lista) {
-    var arr = Array.isArray(lista) ? lista : [];
-    var r = await salvarConfig('metas_economia', JSON.stringify(arr));
-    if (r.erro) return { erro: r.erro };
+  async function criarMetaEconomia(dados) {
+    var payload = {
+      scope_id: 'FAMILIA',
+      name: dados.nome,
+      target_amount: dados.alvo,
+      current_amount: 0,
+      status: 'IN_PROGRESS'
+    };
+    // deadline_date é NOT NULL na tabela; sem prazo, guardamos uma data
+    // distante como "sem prazo definido". A tela mostra prazo só quando quiser.
+    payload.deadline_date = dados.prazo || '2099-12-31';
+    var r = await sb.from('savings_goals').insert(payload).select().maybeSingle();
+    if (r.error) return { erro: r.error.message };
+    invalidar('savings');
+    return { ok: true, meta: r.data ? mapearMetaEconomia(r.data) : null };
+  }
+
+  async function atualizarMetaEconomia(id, dados) {
+    var patch = { updated_at: new Date().toISOString() };
+    if ('nome' in dados) patch.name = dados.nome;
+    if ('alvo' in dados) patch.target_amount = dados.alvo;
+    if ('prazo' in dados) patch.deadline_date = dados.prazo || '2099-12-31';
+    var r = await sb.from('savings_goals').update(patch).eq('id', id);
+    if (r.error) return { erro: r.error.message };
+    invalidar('savings');
+    return { ok: true };
+  }
+
+  // Deposito/retirada mexem no current_amount. Lê o valor atual da linha
+  // (fonte da verdade é o banco, não o estado da tela) e grava o novo,
+  // preso entre 0 e o alvo não é imposto aqui — a tela decide, o banco só
+  // guarda. Marca COMPLETED quando alcança o alvo, para a tela poder exibir.
+  async function ajustarGuardadoMetaEconomia(id, delta) {
+    var atual = await sb.from('savings_goals')
+      .select('current_amount,target_amount').eq('id', id).maybeSingle();
+    if (atual.error) return { erro: atual.error.message };
+    if (!atual.data) return { erro: 'Meta não encontrada' };
+    var novo = Math.max(0, (Number(atual.data.current_amount) || 0) + delta);
+    var alvo = Number(atual.data.target_amount) || 0;
+    var status = (alvo > 0 && novo >= alvo) ? 'COMPLETED' : 'IN_PROGRESS';
+    var r = await sb.from('savings_goals')
+      .update({ current_amount: novo, status: status, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (r.error) return { erro: r.error.message };
+    invalidar('savings');
+    return { ok: true, guardado: novo };
+  }
+
+  // Apagar = marcar CANCELLED (soft delete). Preserva histórico e evita
+  // remover linha que outra visão possa referenciar.
+  async function apagarMetaEconomia(id) {
+    var r = await sb.from('savings_goals')
+      .update({ status: 'CANCELLED', updated_at: new Date().toISOString() }).eq('id', id);
+    if (r.error) return { erro: r.error.message };
+    invalidar('savings');
     return { ok: true };
   }
 
@@ -376,7 +437,10 @@
     classificar: classificar, ensinarRegra: ensinarRegra,
     aplicarLote: aplicarLote, criarCategoria: criarCategoria,
     metas: metas, salvarMeta: salvarMeta, apagarMeta: apagarMeta,
-    metasEconomia: metasEconomia, salvarMetasEconomia: salvarMetasEconomia,
+    metasEconomia: metasEconomia, criarMetaEconomia: criarMetaEconomia,
+    atualizarMetaEconomia: atualizarMetaEconomia,
+    ajustarGuardadoMetaEconomia: ajustarGuardadoMetaEconomia,
+    apagarMetaEconomia: apagarMetaEconomia,
     config: config, salvarConfig: salvarConfig,
     logAlteracoes: logAlteracoes, perguntas: perguntas, perguntar: perguntar,
     pedirSync: pedirSync, comandos: comandos,
