@@ -32,6 +32,9 @@
                 padding:2px 8px; border-radius:20px; font-size:.75rem; white-space:nowrap; }
   .atalho { display:inline-block; margin-top:10px; font-weight:600; color:var(--acento);
             text-decoration:none; min-height:var(--alvo); line-height:var(--alvo); }
+  .diario .valor-dia { font-family:'DM Sans',system-ui,sans-serif; font-size:1.75rem;
+                       font-weight:700; letter-spacing:-.02em; margin:2px 0; }
+  .diario.no-vermelho .valor-dia { color:var(--perigo); }
   .orc { padding:9px 0; border-bottom:1px solid var(--border2); }
   .orc:last-child { border-bottom:0; }
   .orc .cab { display:flex; align-items:baseline; gap:10px; }
@@ -157,6 +160,58 @@ function cartaoOrcamentoEmRisco(gastoPorGrupo) {
   '</div>';
 }
 
+/* Quanto da para gastar por dia ate o fim do mes: (teto total das metas por
+   grupo - custo de vida ja gasto) / dias restantes. So no mes corrente e com
+   orcamento definido. Estimativa linear, declarada como tal (a fatura do
+   cartao entra por competencia e ainda nao caiu no comeco do mes). Reusa
+   metaDoGrupo(), ja definido acima para o alerta de orcamento. */
+function tetoTotalDoMes() {
+  var total = 0;
+  M.GRUPOS_DESPESA.forEach(function (g) {
+    var m = metaDoGrupo(g);
+    if (m && Number(m.valor_mes) > 0) total += Number(m.valor_mes);
+  });
+  return total;
+}
+
+function diasRestantesDoMes() {
+  var hoje = new Date();
+  var ano = hoje.getFullYear(), mesN = hoje.getMonth();
+  var ultimoDia = new Date(ano, mesN + 1, 0).getDate();
+  return Math.max(1, ultimoDia - hoje.getDate() + 1);
+}
+
+function cartaoGastoPorDia(gastoDoMes) {
+  if (mes !== MESES[0]) return '';
+  var hojeYm = new Date().toISOString().slice(0, 7);
+  if (mes !== hojeYm) return '';
+  var teto = tetoTotalDoMes();
+  if (!(teto > 0)) return '';
+
+  var restante = teto - gastoDoMes;
+  var dias = diasRestantesDoMes();
+  var porDia = restante / dias;
+  var estourou = restante <= 0;
+  var leituraRasa = new Date().getDate() <= 7;
+
+  return '<div class="cartao diario' + (estourou ? ' no-vermelho' : '') + '">' +
+    '<p class="mudo" style="margin:0">Dá para gastar por dia' +
+      ' · faltam ' + dias + (dias === 1 ? ' dia' : ' dias') + ' no mês</p>' +
+    '<p class="valor-dia sensivel">' + (estourou ? UI.BRL0(0) : UI.BRL0(porDia)) + '</p>' +
+    '<p class="heroi-sub">' +
+      (estourou
+        ? 'O orçamento do mês já foi todo usado (' + UI.BRL(gastoDoMes) + ' de ' +
+          UI.BRL(teto) + '). Gastos daqui até o fim do mês passam do planejado.'
+        : UI.BRL(restante) + ' ainda no orçamento do mês, divididos pelos dias que faltam.') +
+    '</p>' +
+    '<p class="honestidade">Estimativa linear: divide o que resta igualmente pelos dias. ' +
+      'Não desconta contas fixas que ainda vão cair, então o valor real por dia costuma ser menor.' +
+      (leituraRasa
+        ? ' No começo do mês a conta é otimista: boa parte dos gastos (fatura do cartão) ainda nem entrou.'
+        : '') +
+    '</p>' +
+  '</div>';
+}
 function desenhar() {
   const tx = doMes(mes);
   const custo = M.custoDeVida(tx);
@@ -217,6 +272,9 @@ function desenhar() {
           '<a class="atalho" href="triar.html">Classificar agora →</a>'
         : '<p class="heroi-sub">Nada sem classificar neste mês.</p>') +
     '</div>' +
+
+    // Quanto da para gastar por dia (so mes corrente e com orcamento)
+    cartaoGastoPorDia(custo) +
 
     // Para onde foi
     '<div class="cartao">' +
