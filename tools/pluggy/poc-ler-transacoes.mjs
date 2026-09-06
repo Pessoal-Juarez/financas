@@ -139,15 +139,21 @@ function normalizar(tx, conta) {
   const ehCartao = (conta.type || '').toUpperCase() === 'CREDIT';
   const cc = tx.creditCardMetadata || null;
 
-  // Sinal: no Pluggy, cartão tem compra = positivo e pagamento = negativo,
-  // o INVERSO do padrão deste projeto. Para conta corrente, DEBIT é saída.
-  // Normalizamos para "valor" sempre positivo + um "tipo" (saida/entrada),
-  // como as telas esperam.
+  // Sinal do valor -> tipo (saida/entrada). Normalizamos "valor" para
+  // sempre positivo e derivamos o tipo.
+  //
+  // ⚠️ Observado no sandbox (Pluggy Bank) e a base do nosso mapeamento:
+  //   - CARTÃO (CREDIT): compra vem com amount NEGATIVO (ex.: Netflix -55.9),
+  //     logo amount < 0 = gasto (saida); amount > 0 = estorno/credito (entrada).
+  //     Isto contraria a descrição textual da doc, mas bate com o dado real.
+  //   - CONTA (BANK): usamos o campo `type` (CREDIT=entrada, DEBIT=saida),
+  //     que veio consistente (salário entrada; boleto/luz/condomínio saída).
+  // A convenção do cartão deve ser reconfirmada com um conector REAL antes
+  // do corte (ver plano, Fase 4).
   let valorBruto = Number(tx.amount) || 0;
   let tipo;
   if (ehCartao) {
-    // amount>0 = gasto (saida); amount<0 = pagamento da fatura (entrada/nao-gasto)
-    tipo = valorBruto > 0 ? 'saida' : 'entrada';
+    tipo = valorBruto < 0 ? 'saida' : 'entrada';
   } else {
     tipo = (tx.type === 'CREDIT') ? 'entrada' : 'saida';
   }
@@ -221,7 +227,11 @@ async function main() {
       console.log(`  • ${n.data}  ${n.descricao.slice(0, 32).padEnd(32)}  ${n.tipo.padEnd(7)}  ${brl(n.valor).padStart(14)}` +
         (n.parcela ? `  parc ${n.parcela}` : '') +
         (n.data_compra ? `  compra ${n.data_compra}` : ''));
-      console.log(`      cru: amount=${n._amountOriginal} status=${n._status} ext_id=${n.ext_id}`);
+      const cc = tx.creditCardMetadata || null;
+      const extra = cc
+        ? ` cc={inst:${cc.installmentNumber}/${cc.totalInstallments} bill:${cc.billId || '-'} purchase:${cc.purchaseDate || '-'}}`
+        : '';
+      console.log(`      cru: amount=${n._amountOriginal} status=${n._status}${extra} ext_id=${n.ext_id}`);
     }
     if (txs.length > amostra.length) {
       console.log(`  ... (+${txs.length - amostra.length} não exibidas)`);
