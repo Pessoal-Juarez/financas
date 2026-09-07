@@ -46,3 +46,44 @@ Requer Node 18+ (usa `fetch` nativo). Nenhuma dependência a instalar.
 
 O script usa `connectorId: 2` ("Pluggy Bank"). Se o sandbox não conectar, liste os
 conectores com sua API Key (`GET /connectors?sandbox=true`) e ajuste o id.
+
+## Fase 2 — conexão via Pluggy Connect
+
+Três peças:
+
+1. **`connect-token-server.mjs`** (roda na VPS): endpoint mínimo que troca
+   `clientId`+`secret` por uma API Key e gera o **Connect Token** para o front.
+   Adapta o exemplo oficial (Next.js) para Node puro, sem SDK. O `clientSecret`
+   fica só aqui, no `.env` da VPS.
+
+   Teste local:
+   ```powershell
+   $env:PLUGGY_CLIENT_ID="..."; $env:PLUGGY_CLIENT_SECRET="..."
+   node tools/pluggy/connect-token-server.mjs
+   # POST http://localhost:8791/connect-token  { "clientUserId": "juarez" }
+   ```
+
+2. **`conectar.html`** (front, só gestor): abre o widget Pluggy Connect com o
+   token, e no `onSuccess` guarda o `itemId` na tabela `conexoes_pluggy`.
+   Em `localhost` o front chama `http://localhost:8791`; em produção, a URL
+   HTTPS da VPS (constante `API_BASE`, a preencher na Fase 3).
+
+3. **`sql/2026-09-06_conexoes-pluggy.sql`**: tabela `conexoes_pluggy` (só gestor,
+   RLS via `is_admin()`), aplicada uma vez no Supabase.
+
+Descoberta: a coluna **`ext_id` já existe** em `transacoes` (o trigger
+`trava_colunas_transacao` a referencia). O upsert idempotente da Fase 3 já é
+possível sem migração adicional.
+
+### Teste local do fluxo completo
+
+```powershell
+# terminal 1 — endpoint
+$env:PLUGGY_CLIENT_ID="..."; $env:PLUGGY_CLIENT_SECRET="..."
+node tools/pluggy/connect-token-server.mjs
+
+# terminal 2 — front
+python -m http.server 8777
+# abrir http://localhost:8777/conectar.html (logado como gestor)
+```
+No `localhost`, o widget mostra o conector de sandbox (`includeSandbox`).
