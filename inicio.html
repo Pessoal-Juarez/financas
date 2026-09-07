@@ -183,8 +183,7 @@ function diasRestantesDoMes() {
 
 function cartaoGastoPorDia(gastoDoMes) {
   if (mes !== MESES[0]) return '';
-  var hojeYm = new Date().toISOString().slice(0, 7);
-  if (mes !== hojeYm) return '';
+  if (mes !== M.mesAtual()) return '';
   var teto = tetoTotalDoMes();
   if (!(teto > 0)) return '';
 
@@ -223,7 +222,11 @@ function desenhar() {
   UI.marcarFrescor($('frescor'), 'tx');
 
   const i = MESES.indexOf(mes);
-  const hoje = new Date().toISOString().slice(0, 7);
+  const hoje = M.mesAtual();
+  // O mês atual pode estar na lista de navegação sem ter nenhum lançamento
+  // ainda (abrimos nele de propósito). Detecta isso para avisar em vez de
+  // mostrar R$ 0 com cara de "ninguém gastou".
+  const mesVazio = tx.length === 0;
 
   // Por grupo, só despesa da família. Empresas e movimentação respondem
   // outra pergunta e poluiriam a resposta de "para onde foi meu dinheiro".
@@ -260,9 +263,9 @@ function desenhar() {
     // abertura foi avaliada e descartada — contradiz o objetivo de gastar
     // menos tempo no app (spec §3).
     '<div class="cartao">' +
-      (mes !== hoje && MESES[0] === mes
+      (mes === hoje && mesVazio
         ? '<p class="aviso-mes">' + M.rotuloMes(hoje) + ' ainda não tem lançamentos. ' +
-          'Mostrando ' + M.rotuloMes(mes) + ', o mês mais recente com dado.</p>'
+          'Use o ‹ para ver ' + (MESES[1] ? M.rotuloMes(MESES[1]) : 'o mês anterior') + '.</p>'
         : '') +
       '<p class="mudo" style="margin:0">Custo de vida</p>' +
       '<p class="heroi">' + UI.BRL0(custo) + '</p>' +
@@ -353,11 +356,12 @@ async function carregar(forcar) {
     const d = await DB.tudo(forcar);
     TX = d.tx; CATS = d.categorias; PATR = d.patrimonio || [];
     METAS = await DB.metas(forcar);
-    MESES = M.mesesComDado(TX, true);
-    // Abre no mês mais recente COM DADO, não no mês do calendário. Hoje é
-    // 06/08 e o último lançamento é de 28/07: abrir em agosto mostraria
-    // R$ 0 e pareceria que ninguém gastou nada.
-    if (!mes || MESES.indexOf(mes) === -1) mes = MESES[0];
+    MESES = M.mesesComAtual(TX);
+    // Abre SEMPRE no mês do calendário atual (nem à frente, nem atrás),
+    // mesmo que ainda não tenha lançamento — nesse caso o aviso abaixo do
+    // herói explica que o mês está vazio. O mês atual é sempre o topo da
+    // lista (índice 0); o ‹ leva ao último mês com dado.
+    if (!mes || MESES.indexOf(mes) === -1) mes = M.mesAtual();
     desenhar();
   } catch (e) {
     UI.erro($('tela'), e.message, () => carregar(true));

@@ -531,6 +531,15 @@
                    'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
   function ym(data) { return String(data || '').slice(0, 7); }
+
+  // Mês corrente em horário LOCAL, no formato 'AAAA-MM'. Nunca usar
+  // toISOString() aqui: ele devolve UTC, e perto da virada do mês (23h no
+  // Brasil, GMT-3) o dia já é 1 lá fora — o app abriria no mês seguinte.
+  function mesAtual() {
+    var d = new Date();
+    var m = d.getMonth() + 1;
+    return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m;
+  }
   function rotuloMes(ym_) {
     if (!ym_) return '';
     var p = ym_.split('-');
@@ -559,7 +568,7 @@
   // A projeção de parcelamento chama SEM esse filtro, pois precisa do futuro.
   function mesesComDado(tx, ateHoje) {
     var m = {};
-    var limite = ateHoje ? ym(new Date().toISOString()) : null;
+    var limite = ateHoje ? mesAtual() : null;
     tx.forEach(function (t) {
       if (!t.data) return;
       var mm = ym(t.data);
@@ -567,6 +576,18 @@
       m[mm] = 1;
     });
     return Object.keys(m).sort().reverse();
+  }
+
+  // Como mesesComDado(tx, true), mas GARANTE que o mês corrente está na
+  // lista, mesmo sem lançamento ainda. Assim as telas abrem sempre no mês
+  // do calendário (nem à frente, nem atrás), e a navegação ‹ › continua
+  // consistente: o mês atual fica no topo (índice 0) e o ‹ leva ao último
+  // mês com dado. Meses futuros (parcelas a vencer) seguem fora.
+  function mesesComAtual(tx) {
+    var lista = mesesComDado(tx, true);
+    var atual = mesAtual();
+    if (lista.indexOf(atual) === -1) lista.unshift(atual);
+    return lista;
   }
 
   global.M = {
@@ -587,8 +608,9 @@
     ehCustoDeVida: ehCustoDeVida, ehEmpresa: ehEmpresa, ehSaida: ehSaida,
     somar: somar, custoDeVida: custoDeVida, incertezaDoMes: incertezaDoMes,
     percentualClassificado: percentualClassificado,
-    ym: ym, rotuloMes: rotuloMes,
-    mesesAnteriores: mesesAnteriores, mesesComDado: mesesComDado, porMes: porMes,
+    ym: ym, rotuloMes: rotuloMes, mesAtual: mesAtual,
+    mesesAnteriores: mesesAnteriores, mesesComDado: mesesComDado,
+    mesesComAtual: mesesComAtual, porMes: porMes,
     TRAVAS: TRAVAS, despesaFamiliar: despesaFamiliar,
     gruposAcimaDoNormal: gruposAcimaDoNormal, parcelasAVencer: parcelasAVencer,
     assinaturas: assinaturas, assinaturasNovas: assinaturasNovas,
