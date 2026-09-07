@@ -47,12 +47,16 @@
 'use strict';
 const $ = UI.$;
 
-// URL do endpoint que gera o Connect Token (roda na VPS, guarda o secret).
-// Em produção, apontar para o domínio HTTPS da VPS. Em teste local, o
-// connect-token-server.mjs sobe em localhost:8791.
+// URL do serviço Pluggy (connect-token + webhook), que guarda o secret.
+// Roda no EasyPanel (server/pluggy). Em teste local sobe em localhost:8790.
+//
+// PRODUÇÃO: preencher com o domínio HTTPS que o EasyPanel gerar para o serviço
+// (ex.: 'https://pessoal-pluggy-oqv.8vtq9a.easypanel.host'). Enquanto estiver
+// vazio, a tela avisa que a conexão ainda não está configurada.
+const PLUGGY_API_PROD = ''; // TODO: URL do serviço no EasyPanel (sem barra no fim)
 const API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-  ? 'http://localhost:8791'
-  : ''; // TODO Fase 3: preencher com a URL HTTPS da VPS
+  ? 'http://localhost:8790'
+  : PLUGGY_API_PROD;
 
 // Bancos da família e o status de conexão. O itemId conectado fica em
 // `conexoes_pluggy` (Supabase); aqui listamos o que já existe.

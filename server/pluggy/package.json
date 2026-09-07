@@ -1,0 +1,13 @@
+{
+  "name": "pluggy-financas",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Serviço Pluggy do app Finanças: connect-token + webhook de ingestão.",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}
