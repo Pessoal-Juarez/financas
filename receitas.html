@@ -160,7 +160,7 @@ async function carregar(forcar) {
   try {
     const d = await DB.tudo(forcar);
     TX = d.tx; CATS = d.categorias;
-    MESES = M.mesesComDado(TX);
+    MESES = M.mesesComDado(TX, true);
     desenhar();
   } catch (e) { UI.erro($('tela'), e.message, () => carregar(true)); }
 }

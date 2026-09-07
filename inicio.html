@@ -353,7 +353,7 @@ async function carregar(forcar) {
     const d = await DB.tudo(forcar);
     TX = d.tx; CATS = d.categorias; PATR = d.patrimonio || [];
     METAS = await DB.metas(forcar);
-    MESES = M.mesesComDado(TX);
+    MESES = M.mesesComDado(TX, true);
     // Abre no mês mais recente COM DADO, não no mês do calendário. Hoje é
     // 06/08 e o último lançamento é de 28/07: abrir em agosto mostraria
     // R$ 0 e pareceria que ninguém gastou nada.
