@@ -143,6 +143,13 @@ function paraTransacao(tx, conta, regras) {
     parcela: (cc && cc.totalInstallments > 1) ? `${cc.installmentNumber}/${cc.totalInstallments}` : null,
     data_compra: (cc && cc.purchaseDate) ? gmt3(cc.purchaseDate) : null,
     src: srcDe(conta),
+    // Chaves de classificação SEMPRE presentes (null quando não há regra).
+    // O PostgREST rejeita insert em lote se os objetos tiverem conjuntos de
+    // chaves diferentes (PGRST102 "All object keys must match"): sem regra,
+    // uma linha ficaria sem cls/categoria e derrubaria o lote inteiro.
+    cls: null,
+    categoria: null,
+    categoria_id: null,
   };
   const regra = regraQueCasa(linha.descricao, regras);
   if (regra) {
