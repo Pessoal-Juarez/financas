@@ -247,6 +247,35 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Diagnóstico: quantas transações o Pluggy retorna por conta do item, e uma
+  // amostra da primeira de cada — para descobrir por que o cartão não entrou.
+  if (req.method === 'GET' && req.url.startsWith('/debug/contagem')) {
+    if (WEBHOOK_SECRET && req.headers['x-webhook-secret'] !== WEBHOOK_SECRET) {
+      res.writeHead(401); return res.end();
+    }
+    const u = new URL(req.url, 'http://x');
+    const itemId = u.searchParams.get('itemId');
+    if (!itemId) return send(res, 400, { error: 'informe ?itemId=' });
+    try {
+      const contas = await getContas(itemId);
+      const out = [];
+      for (const c of contas) {
+        let info = { id: c.id, type: c.type, name: c.name || c.marketingName };
+        try {
+          const txs = await getTransacoes(c.id);
+          info.transacoes = txs.length;
+          const comCC = txs.filter((t) => t.creditCardMetadata && t.creditCardMetadata.totalInstallments > 1).length;
+          info.parceladas = comCC;
+          if (txs[0]) info.amostra = { date: txs[0].date, description: txs[0].description, amount: txs[0].amount };
+        } catch (e2) { info.erro = e2.message; }
+        out.push(info);
+      }
+      return send(res, 200, { itemId, contas: out });
+    } catch (e) {
+      return send(res, 502, { error: e.message });
+    }
+  }
+
   if (req.method === 'POST' && req.url === '/connect-token') {
     const body = await lerCorpo(req);
     try {
