@@ -208,3 +208,40 @@ Regras de negócio que precisam ser revalidadas contra os dados do Pluggy:
 Você faz a **Fase 0** (credenciais + cobertura + custo). Com isso em mãos, começo a
 **Fase 1** (PoC de leitura no sandbox) e a **Fase 2** (tela de conexão), que são as partes
 que rodam a partir deste repositório.
+
+---
+
+## 9. Progresso e aprendizados (07/09/2026)
+
+**Fase 0 — feita.** Credenciais de desenvolvedor criadas (guardadas no 1Password).
+Cobertura confirmada via `GET /connectors`: **Itaú, BTG, Nubank e InfinitePay têm
+conector com CREDIT_CARDS e TRANSACTIONS**. Ou seja, o Pluggy pode automatizar até os três
+bancos que hoje entram manualmente (BTG/Nubank/InfinitePay) — ganho maior que o previsto.
+
+**Fase 1 — validada no sandbox** (`tools/pluggy/poc-ler-transacoes.mjs`):
+- Autenticação, criação de item e leitura de transações (paginação por cursor): OK.
+- Conta corrente: sinal entrada/saída correto (usa `type`).
+- Cartão: sinal **invertido** confirmado no dado real — compra vem com `amount` negativo,
+  então normalizamos `amount < 0 = saida` para `CREDIT`. (A doc textual dizia o contrário.)
+- ⏳ Não validável no sandbox: `parcela pp/tt`, `data_compra` e competência da fatura — o
+  item de sandbox só traz assinaturas recorrentes, sem `creditCardMetadata`. **Só dá para
+  fechar isso com dado real** (é a parte mais delicada: Parcelamento/projeção dependem dela).
+
+**Fase 2 — validada localmente** (`conectar.html` + `connect-token-server.mjs`):
+- Endpoint gera o Connect Token no servidor; widget abre, consente, seleciona banco,
+  autentica e coleta. `onSuccess` devolve o `itemId`.
+- Correção: a URL do CDN do widget é `/pluggy-connect/latest/` (a versão fixa que eu
+  chutei dava 404).
+- O aviso `[Violation] unload is not allowed` no console era efeito da **emulação de
+  dispositivo do DevTools**, não do app — some com a emulação desligada e não afeta
+  produção.
+
+**Pontos a tratar na ida para produção (Fase 3):**
+1. **HTTPS obrigatório** no endpoint do token na VPS. Página HTTPS (GitHub Pages) não pode
+   chamar endpoint HTTP (mixed content). Preencher `API_BASE` no `conectar.html` com a URL
+   HTTPS da VPS.
+2. **OAuth em PWA no iPhone:** para bancos que usam OAuth, considerar
+   `forceOauthInBrowser: true` no PluggyConnect, para o redirect abrir no navegador do
+   sistema em vez de dentro do PWA standalone.
+3. Aplicar `sql/2026-09-06_conexoes-pluggy.sql` no Supabase (senão o `itemId` não é salvo).
+4. Adicionar o link para `conectar.html` no `mais.html` só depois do endpoint no ar.
