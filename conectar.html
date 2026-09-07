@@ -154,6 +154,7 @@ async function abrirWidget(instituicao) {
       },
       onOpen: () => console.log('PluggyConnect: widget aberto'),
       onClose: () => console.log('PluggyConnect: widget fechado'),
+      onEvent: (payload) => console.log('PluggyConnect evento:', payload && payload.event, payload),
     });
     pluggy.init();
   } catch (e) {
