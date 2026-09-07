@@ -229,6 +229,24 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, service: 'pluggy-financas' });
   }
 
+  // Diagnóstico: lista as contas de um item (tipo/subtipo/nome), para saber se
+  // o cartão veio junto. Protegido pelo mesmo segredo do webhook.
+  if (req.method === 'GET' && req.url.startsWith('/debug/contas')) {
+    if (WEBHOOK_SECRET && req.headers['x-webhook-secret'] !== WEBHOOK_SECRET) {
+      res.writeHead(401); return res.end();
+    }
+    const u = new URL(req.url, 'http://x');
+    const itemId = u.searchParams.get('itemId');
+    if (!itemId) return send(res, 400, { error: 'informe ?itemId=' });
+    try {
+      const contas = await getContas(itemId);
+      const resumo = contas.map((c) => ({ id: c.id, type: c.type, subtype: c.subtype, name: c.name || c.marketingName }));
+      return send(res, 200, { itemId, contas: resumo });
+    } catch (e) {
+      return send(res, 502, { error: e.message });
+    }
+  }
+
   if (req.method === 'POST' && req.url === '/connect-token') {
     const body = await lerCorpo(req);
     try {
