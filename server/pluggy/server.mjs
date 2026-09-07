@@ -165,20 +165,34 @@ async function processarItem(itemId) {
   const regras = await carregarRegras();
   const contas = await getContas(itemId);
   let total = 0;
+  const rel = [];
   for (const conta of contas) {
     conta.connectorName = item && item.connector && item.connector.name;
-    const txs = await getTransacoes(conta.id);
-    if (!txs.length) continue;
-    const linhas = txs.map((t) => paraTransacao(t, conta, regras));
-    for (let i = 0; i < linhas.length; i += 200) {
-      await sb('/transacoes?on_conflict=ext_id', {
-        method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', body: linhas.slice(i, i + 200),
-      });
-      total += Math.min(200, linhas.length - i);
+    const r = { conta: conta.name || conta.id, type: conta.type, lidas: 0, gravadas: 0 };
+    try {
+      const txs = await getTransacoes(conta.id);
+      r.lidas = txs.length;
+      const linhas = txs.map((t) => paraTransacao(t, conta, regras));
+      for (let i = 0; i < linhas.length; i += 200) {
+        const lote = linhas.slice(i, i + 200);
+        try {
+          await sb('/transacoes?on_conflict=ext_id', {
+            method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', body: lote,
+          });
+          r.gravadas += lote.length; total += lote.length;
+        } catch (eLote) {
+          // Captura o erro do lote e uma amostra da 1a linha, sem derrubar o
+          // resto do processamento.
+          if (!r.erro) { r.erro = eLote.message; r.amostraLinha = lote[0]; }
+        }
+      }
+    } catch (eConta) {
+      r.erro = eConta.message;
     }
+    rel.push(r);
   }
-  console.log(`[item ${itemId}] status=${item && item.status} upsert=${total}`);
-  return total;
+  console.log(`[item ${itemId}] status=${item && item.status} upsert=${total} rel=${JSON.stringify(rel)}`);
+  return { total, contas: rel, status: item && item.status };
 }
 async function apagarPorExtId(ids) {
   if (!ids || !ids.length) return 0;
@@ -291,6 +305,23 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       console.error('[connect-token]', e.message);
       return send(res, 502, { error: 'nao_foi_possivel_gerar_token' }, true);
+    }
+  }
+
+  // Diagnóstico: processa um item de forma SÍNCRONA e devolve o relatório
+  // (erros por conta + amostra da linha problemática). Protegido.
+  if (req.method === 'GET' && req.url.startsWith('/debug/processar')) {
+    if (WEBHOOK_SECRET && req.headers['x-webhook-secret'] !== WEBHOOK_SECRET) {
+      res.writeHead(401); return res.end();
+    }
+    const u = new URL(req.url, 'http://x');
+    const itemId = u.searchParams.get('itemId');
+    if (!itemId) return send(res, 400, { error: 'informe ?itemId=' });
+    try {
+      const rel = await processarItem(itemId);
+      return send(res, 200, rel);
+    } catch (e) {
+      return send(res, 502, { error: e.message });
     }
   }
 
