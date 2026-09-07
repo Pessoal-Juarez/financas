@@ -1,6 +1,6 @@
 # Onde paramos
 
-**Última atualização:** 05/09/2026.
+**Última atualização:** 07/09/2026.
 **Leia este arquivo primeiro** ao retomar o projeto.
 
 ---
@@ -8,9 +8,10 @@
 ## Em uma frase
 
 App no ar desde 07/08/2026. Em set/2026 foram adicionadas quatro funcionalidades
-(metas de economia, alerta de orçamento, gasto por dia e detalhamento de grupo) e a
-**próxima grande frente é trocar o sync do Open Finance do MCP atual (Cumbuca) pelo
-Pluggy**, para atualização diária dos cartões.
+(metas de economia, alerta de orçamento, gasto por dia e detalhamento de grupo) e o
+**Itaú passou a ser sincronizado pelo Pluggy** (serviço próprio no EasyPanel), com
+atualização diária automática de conta e cartão — o sync antigo do Itaú via Cumbuca
+foi desligado. BTG/Nubank/InfinitePay ainda entram pelo fluxo antigo.
 
 ## Onde vive o projeto (GitHub)
 
@@ -81,11 +82,27 @@ paginada, cache), `ui.js` (nav, toast, estados, gráficos), `app.css` (tokens, t
 
 ## O que falta
 
-### 0. Trocar o sync do Open Finance para o Pluggy (próxima grande frente)
+### 0. Sync do Itaú via Pluggy — ✅ ATIVO (07/09/2026)
 
-**Objetivo:** substituir o MCP atual (Cumbuca), na VPS, pelo **Pluggy**
-(<https://www.pluggy.ai/>), que agrega Open Finance Brasil e **atualiza os dados de
-cartão diariamente** — o ponto fraco do sync atual.
+**Feito.** O Itaú (conta + cartão) agora é sincronizado pelo **Pluggy** via um serviço
+próprio no EasyPanel. O sync antigo do Itaú pelo Cumbuca foi **desligado**. O texto abaixo
+descreve o desenho; ver também `docs/architecture.md` e o diário no fim deste arquivo.
+
+**Arquitetura em produção:**
+- Serviço `pessoal/pluggy` no EasyPanel (código em `server/pluggy/`), domínio
+  `https://pessoal-pluggy.8vtq9a.easypanel.host`, porta 8790. Rotas: `/connect-token`
+  (widget), `/webhook` (ingestão), `/health`, e `/debug/*` (diagnóstico, protegidas por
+  `X-Webhook-Secret`).
+- Front: `conectar.html` (só gestor, no menu Mais) abre o widget Pluggy Connect; o
+  `itemId` fica em `conexoes_pluggy` (RLS só-gestor, `sql/2026-09-06_conexoes-pluggy.sql`).
+- Ingestão: o Pluggy sincroniza diário → webhook → o serviço lê, normaliza para
+  `transacoes` (sinal do cartão, `parcela`, `data_compra`, GMT-3), aplica o motor de
+  regras (padrão→cls/categoria) e faz **upsert por `ext_id`** com a service_role.
+- Cobertura confirmada no Pluggy para os 4 bancos; hoje só o Itaú está conectado.
+  BTG/Nubank/InfinitePay seguem no fluxo antigo (CSV/PDF).
+
+**Objetivo original (mantido para contexto):** substituir o MCP (Cumbuca) pelo Pluggy,
+que **atualiza conta e cartão diariamente** — o ponto fraco do sync antigo.
 
 Referências: <https://github.com/pluggyai> ·
 <https://github.com/pluggyai/meu-pluggy> · <https://github.com/pluggyai/quickstart> ·
@@ -381,3 +398,47 @@ item 0". É trabalho majoritariamente na VPS.
 **Convenção reforçada nesta sessão:** ao editar arquivos com acentos por script, gravar
 como **UTF-8 sem BOM** (`[System.IO.File]::WriteAllText` com `UTF8Encoding($false)`);
 `Set-Content -Encoding UTF8` corrompe acentos e injeta BOM.
+
+
+---
+
+## Diário — 07/09/2026: migração do Itaú para o Pluggy + corte do Cumbuca
+
+Do plano à ativação em produção. Resumo do que foi feito e das armadilhas.
+
+**Serviço Pluggy no EasyPanel** (`server/pluggy/`, Dockerfile, uma porta 8790):
+`/connect-token` + `/webhook` + `/health` + `/debug/*`. HTTPS e proxy pelo EasyPanel.
+Variáveis (segredos) na aba Environment do App, incluindo `PLUGGY_WEBHOOK_URL` para o
+Pluggy notificar sozinho.
+
+**Fluxo validado com dado real do Itaú:**
+- Widget conecta; `itemId` salvo em `conexoes_pluggy`.
+- Ingestão: 2377 transações (conta + cartão), 475 parceladas com `data_compra` (isso
+  corrige a pendência V1 — `data_compra` voltou a existir), classificação por regra
+  funcionando; ~884 caíram na triagem (cauda longa, esperado).
+
+**Bugs achados e corrigidos no serviço (nesta ordem):**
+1. URL do widget: `/pluggy-connect/latest/` (a versão fixa dava 404).
+2. `pageSize` não é aceito pela `/v2/transactions` (removido).
+3. Sinal do cartão: no dado real, compra vem com `amount` NEGATIVO → `amount<0 = saida`.
+4. Upsert em lote: PostgREST exige chaves iguais em todos os objetos (PGRST102) → sempre
+   incluir cls/categoria/categoria_id.
+5. `cls` é NOT NULL → default `'Indefinido'` (não `null`), sobrescrito pela regra.
+
+**Corte do Cumbuca (Fase 4):**
+- Crons do Itaú comentados no crontab (`#CORTE-PLUGGY`), backup do crontab salvo em
+  `/root/financas/crontab.backup-corte-*`. Os outros ~49 crons da VPS intactos.
+  ⚠️ Aprendizado: `crontab -l | sed ... | crontab -` com saída vazia APAGA o crontab
+  inteiro — sempre gerar em arquivo, conferir a contagem de linhas e aplicar
+  `crontab arquivo`.
+- Duplicatas removidas: 2186 linhas do Itaú (Cumbuca, `ext_id IS NULL`, src Conta/Cartão,
+  data ≥ 2025-08-23). **Preservados:** BTG (236) e Itaú anterior a ago/2025 (774).
+  Backup das apagadas em `/root/financas/backup-corte-itau-cumbuca-*.json` (2186 linhas).
+- Estado final: 3387 transações (2377 Pluggy + 1010 Cumbuca preservado).
+
+**Pendências:**
+- 🔑 **Rotacionar as chaves** que circularam (service_role, Pluggy secret, webhook secret).
+  Ao trocar a service_role, atualizar nos DOIS lugares: EasyPanel e `.env` da VPS (`SR`),
+  senão o sync do BTG/Cumbuca restante para.
+- Quando conectar BTG/Nubank/InfinitePay no Pluggy, repetir o corte para esses `src`.
+- Rotas `/debug/*` mantidas a pedido (úteis para diagnóstico); protegidas por segredo.
