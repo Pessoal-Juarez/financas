@@ -326,6 +326,63 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Diagnóstico/manutenção: remove duplicatas internas do Pluggy, criadas
+  // quando o ext_id de uma transação mudou entre sincronizações (a chave de
+  // dedup vira o conteúdo: data|descricao|valor|src). Mantém a "melhor" de
+  // cada grupo: classificada (cls != Indefinido) tem prioridade; empate, a de
+  // id maior (mais recente). ?dry=1 simula sem apagar. Protegido.
+  if (req.method === 'GET' && req.url.startsWith('/debug/dedup')) {
+    if (WEBHOOK_SECRET && req.headers['x-webhook-secret'] !== WEBHOOK_SECRET) {
+      res.writeHead(401); return res.end();
+    }
+    const u = new URL(req.url, 'http://x');
+    const dry = u.searchParams.get('dry') === '1';
+    try {
+      // Lê todas as linhas do Pluggy (ext_id não nulo), paginado.
+      let linhas = [], de = 0;
+      for (;;) {
+        const pg = await sb(`/transacoes?select=id,ext_id,data,descricao,valor,src,cls&ext_id=not.is.null&order=id.asc&limit=1000&offset=${de}`);
+        const arr = pg || [];
+        linhas = linhas.concat(arr);
+        if (arr.length < 1000) break;
+        de += 1000;
+      }
+      // Agrupa por conteúdo.
+      const grupos = new Map();
+      for (const l of linhas) {
+        const k = [l.data, l.descricao, l.valor, l.src].join('|');
+        if (!grupos.has(k)) grupos.set(k, []);
+        grupos.get(k).push(l);
+      }
+      // Decide o que apagar.
+      const apagar = [];
+      let gruposComDup = 0;
+      for (const [, arr] of grupos) {
+        if (arr.length < 2) continue;
+        gruposComDup++;
+        arr.sort((a, b) => {
+          const ca = (a.cls && a.cls !== 'Indefinido') ? 1 : 0;
+          const cb = (b.cls && b.cls !== 'Indefinido') ? 1 : 0;
+          if (ca !== cb) return cb - ca;           // classificada primeiro
+          return String(b.id).localeCompare(String(a.id)); // id maior primeiro
+        });
+        for (let i = 1; i < arr.length; i++) apagar.push(arr[i].id);
+      }
+      if (!dry && apagar.length) {
+        for (let i = 0; i < apagar.length; i += 100) {
+          const lote = apagar.slice(i, i + 100).join(',');
+          await sb(`/transacoes?id=in.(${lote})`, { method: 'DELETE', prefer: 'return=minimal' });
+        }
+      }
+      return send(res, 200, {
+        dry, totalPluggy: linhas.length, gruposComDuplicata: gruposComDup,
+        aApagar: apagar.length, apagados: dry ? 0 : apagar.length,
+      });
+    } catch (e) {
+      return send(res, 502, { error: e.message });
+    }
+  }
+
   if (req.method === 'POST' && req.url === '/webhook') {
     if (WEBHOOK_SECRET && req.headers['x-webhook-secret'] !== WEBHOOK_SECRET) {
       res.writeHead(401); return res.end();
