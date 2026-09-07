@@ -46,3 +46,28 @@ Requer Node 18+ (usa `fetch` nativo). Nenhuma dependência a instalar.
 
 O script usa `connectorId: 2` ("Pluggy Bank"). Se o sandbox não conectar, liste os
 conectores com sua API Key (`GET /connectors?sandbox=true`) e ajuste o id.
+
+## Fase 3 — ingestão por webhook (VPS)
+
+`ingest-webhook-server.mjs`: recebe os webhooks do Pluggy, responde 2XX em <10s e, em
+segundo plano, lê a API do Pluggy, normaliza para o formato de `transacoes`, aplica o
+motor de regras (padrão→cls/categoria, igual ao app) e faz **upsert por `ext_id`** no
+Supabase com a `service_role`.
+
+- Trata `transactions/created|updated` (recarrega o item) e `transactions/deleted`
+  (apaga por `ext_id`). A normalização é a mesma validada no PoC (sinal do cartão,
+  parcela, `data_compra`, GMT-3).
+- Segurança: HTTPS + IP allowlist do Pluggy (`52.67.145.81`) no nginx, e
+  `X-Webhook-Secret` opcional. `service_role` só no `.env` da VPS.
+
+Teste local do processamento (sem webhook), com um item real já conectado:
+```powershell
+$env:PLUGGY_CLIENT_ID="..."; $env:PLUGGY_CLIENT_SECRET="..."
+$env:SUPABASE_URL="https://urlxbgngcncndtnhyqyf.supabase.co"; $env:SUPABASE_SERVICE_ROLE="..."
+node tools/pluggy/ingest-webhook-server.mjs --once <itemId>
+```
+⚠️ `--once` **grava em `transacoes`** (produção). Use só quando for validar de verdade,
+e rode Pluggy e Cumbuca em paralelo antes de cortar (Fase 4).
+
+**Deploy completo na VPS:** ver [`DEPLOY-VPS.md`](DEPLOY-VPS.md) (nginx HTTPS, systemd,
+registro do webhook, migração SQL, teste e corte).
