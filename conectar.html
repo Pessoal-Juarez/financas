@@ -38,7 +38,7 @@
 <!-- Widget oficial do Pluggy (Pluggy Connect). Resolve os fluxos de MFA/OAuth
      de cada banco; sem ele, conectar Itaú/Nubank exigiria reimplementar QR,
      token, seleção de conta etc. -->
-<script src="https://cdn.pluggy.ai/pluggy-connect/v2.9.1/pluggy-connect.js"></script>
+<script src="https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="assets/modelo.js"></script>
 <script src="assets/db.js"></script>
@@ -131,23 +131,35 @@ async function abrirWidget(instituicao) {
     return;
   }
 
-  // eslint-disable-next-line no-undef
-  const pluggy = new PluggyConnect({
-    connectToken: accessToken,
-    includeSandbox: (location.hostname === 'localhost'),
-    onSuccess: async (itemData) => {
-      const item = itemData && itemData.item ? itemData.item : itemData;
-      await salvarConexao(instituicao, item);
-      UI.toast('Banco conectado! Sincronização diária ativada.');
-      CONEXOES = await carregarConexoes();
-      desenhar();
-    },
-    onError: (err) => {
-      UI.toast('A conexão não foi concluída.', 'erro');
-      if (err) console.error('PluggyConnect error:', err);
-    },
-  });
-  pluggy.init();
+  if (typeof PluggyConnect === 'undefined') {
+    UI.toast('O widget do Pluggy não carregou (script). Veja o console.', 'erro');
+    console.error('PluggyConnect indefinido: o <script> do CDN não carregou.');
+    return;
+  }
+
+  try {
+    const pluggy = new PluggyConnect({
+      connectToken: accessToken,
+      includeSandbox: (location.hostname === 'localhost' || location.hostname === '127.0.0.1'),
+      onSuccess: async (itemData) => {
+        const item = itemData && itemData.item ? itemData.item : itemData;
+        await salvarConexao(instituicao, item);
+        UI.toast('Banco conectado! Sincronização diária ativada.');
+        CONEXOES = await carregarConexoes();
+        desenhar();
+      },
+      onError: (err) => {
+        UI.toast('A conexão não foi concluída.', 'erro');
+        console.error('PluggyConnect onError:', err);
+      },
+      onOpen: () => console.log('PluggyConnect: widget aberto'),
+      onClose: () => console.log('PluggyConnect: widget fechado'),
+    });
+    pluggy.init();
+  } catch (e) {
+    UI.toast('Falha ao abrir o widget. Veja o console.', 'erro');
+    console.error('Erro ao inicializar PluggyConnect:', e);
+  }
 }
 
 async function salvarConexao(instituicao, item) {
