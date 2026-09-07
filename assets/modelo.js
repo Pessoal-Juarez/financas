@@ -551,9 +551,21 @@
   }
 
   // Meses que têm lançamento, do mais recente para o mais antigo.
-  function mesesComDado(tx) {
+  //
+  // `ateHoje` (opcional): quando true, ignora meses FUTUROS. Necessário desde
+  // que o Pluggy passou a trazer parcelas a vencer com a data real da parcela
+  // (competência futura, ex. jul/2027). Sem isso, o "mês mais recente com dado"
+  // vira um mês futuro vazio de gasto real, e o Início/Análise abririam nele.
+  // A projeção de parcelamento chama SEM esse filtro, pois precisa do futuro.
+  function mesesComDado(tx, ateHoje) {
     var m = {};
-    tx.forEach(function (t) { if (t.data) m[ym(t.data)] = 1; });
+    var limite = ateHoje ? ym(new Date().toISOString()) : null;
+    tx.forEach(function (t) {
+      if (!t.data) return;
+      var mm = ym(t.data);
+      if (limite && mm > limite) return;   // descarta competência futura
+      m[mm] = 1;
+    });
     return Object.keys(m).sort().reverse();
   }
 

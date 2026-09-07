@@ -82,7 +82,7 @@ function desenhar(resetPagina) {
   const todos = filtrado();
   const total = M.somar(todos);
   const linhas = todos.slice(0, mostrando);
-  const meses = M.mesesComDado(TX);
+  const meses = M.mesesComDado(TX, true);
   const grupos = [];
   CATS.forEach(c => { if (grupos.indexOf(c.grupo) === -1) grupos.push(c.grupo); });
 

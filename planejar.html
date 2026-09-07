@@ -394,7 +394,7 @@ async function carregar(forcar) {
     TX = d.tx; CATS = d.categorias; PATR = d.patrimonio || [];
     METAS = await DB.metas(forcar);
     METAS_ECON = await DB.metasEconomia(forcar);
-    MESES = M.mesesComDado(TX);
+    MESES = M.mesesComDado(TX, true);
     desenhar();
   } catch (e) {
     UI.erro($('tela'), e.message, () => carregar(true));
