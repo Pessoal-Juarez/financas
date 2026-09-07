@@ -143,11 +143,12 @@ function paraTransacao(tx, conta, regras) {
     parcela: (cc && cc.totalInstallments > 1) ? `${cc.installmentNumber}/${cc.totalInstallments}` : null,
     data_compra: (cc && cc.purchaseDate) ? gmt3(cc.purchaseDate) : null,
     src: srcDe(conta),
-    // Chaves de classificação SEMPRE presentes (null quando não há regra).
-    // O PostgREST rejeita insert em lote se os objetos tiverem conjuntos de
-    // chaves diferentes (PGRST102 "All object keys must match"): sem regra,
-    // uma linha ficaria sem cls/categoria e derrubaria o lote inteiro.
-    cls: null,
+    // Chaves de classificação SEMPRE presentes e uniformes (evita PGRST102
+    // "All object keys must match" em lote). O default de `cls` é 'Indefinido'
+    // — a coluna é NOT NULL e 'Indefinido' é o valor que joga a transação na
+    // fila de triagem (igual ao que o sync do Cumbuca faz). categoria/id ficam
+    // null sem regra (essas colunas aceitam null).
+    cls: 'Indefinido',
     categoria: null,
     categoria_id: null,
   };
