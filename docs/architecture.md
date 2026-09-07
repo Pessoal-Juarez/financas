@@ -9,11 +9,16 @@ Descreve o sistema **como ele é hoje** (05/08/2026). Para o que está planejado
 
 ```
    ┌──────────────┐
-   │  Itaú        │  Open Finance (Cumbuca MCP) — 1 instituição conectada
+   │  Itaú        │  Open Finance via PLUGGY (desde 07/09/2026) — conta + cartão
    └──────┬───────┘
-          │ leitura
+          │ Pluggy sincroniza diário → webhook
    ┌──────▼─────────────────────┐
-   │  VPS  root@srv1093562      │  Claude Code + crons
+   │  Serviço Pluggy (EasyPanel)│  server/pluggy · pessoal-pluggy.8vtq9a...
+   │  /connect-token · /webhook │  usa service_role → IGNORA RLS
+   └──────┬─────────────────────┘
+          │ (o Cumbuca na VPS ainda cuida de BTG/Nubank/InfinitePay via CSV/PDF)
+   ┌──────▼─────────────────────┐
+   │  VPS  root@srv1093562      │  crons (BTG/manual); sync do Itaú DESLIGADO
    │  /root/financas/           │  usa service_role → IGNORA RLS
    └──────┬─────────────────────┘
           │ grava
@@ -92,10 +97,14 @@ Um trigger (`trg_trava_colunas_transacao`) impede que a colaboradora altere `val
 
 | Cron | Script | O que faz |
 |---|---|---|
-| `0 7 * * *` | `sync.sh` | conta Itaú, janela de 7 dias (balde barato) |
-| `0 8 * * 1` | `sync-cartao.sh semanal` | cartão por competência |
-| `0 9 1-3 * *` | `sync-cartao-mensal.sh` | fechamento do mês |
-| `*/2 * * * *` | `check-comandos.sh` | processa as filas `comandos` e `perguntas` |
+| ~~`0 7 * * *`~~ | ~~`sync.sh`~~ | **DESLIGADO 07/09/2026** — Itaú agora vem do Pluggy |
+| ~~`0 9 1-3 * *`~~ | ~~`sync-cartao-mensal.sh`~~ | **DESLIGADO 07/09/2026** — idem |
+| ~~`*/2 * * * *`~~ | ~~`check-comandos.sh`~~ | **DESLIGADO 07/09/2026** (comentado com `#CORTE-PLUGGY`) |
+
+> **Itaú migrado para o Pluggy (07/09/2026).** A ingestão do Itaú (conta + cartão) agora é
+> feita pelo serviço Pluggy no EasyPanel, por webhook, com sync diário automático. Os crons
+> acima foram comentados no crontab (reversível). BTG/Nubank/InfinitePay ainda dependem de
+> exportação manual (CSV/PDF). Ver `docs/ESTADO.md › item 0` e `server/pluggy/`.
 
 **Cotas do Open Finance:** balde barato (saldo + 7 dias) ~240/mês; balde caro (histórico
 > 7 dias, faturas, `list_accounts`) **8/mês**. Qualquer feature que dependa do caro
