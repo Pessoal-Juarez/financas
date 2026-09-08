@@ -186,9 +186,10 @@ async function carregar(forcar) {
   try {
     const d = await DB.tudo(forcar);
     TX = d.tx; CATS = d.categorias;
-    MESES = M.mesesComDado(TX, true);
-    // Se o mês da URL não existir nos dados, cai no mais recente com dado.
-    if (!mes || MESES.indexOf(mes) === -1) mes = MESES[0];
+    MESES = M.mesesComAtual(TX);
+    // Normalmente o mês vem da URL (link do Início). Sem ele ou se for
+    // inválido, cai no mês do calendário atual.
+    if (!mes || MESES.indexOf(mes) === -1) mes = M.mesAtual();
     desenhar();
   } catch (e) {
     UI.erro($('tela'), e.message, () => carregar(true));
