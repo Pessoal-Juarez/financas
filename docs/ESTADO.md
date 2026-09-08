@@ -13,7 +13,11 @@ App no ar desde 07/08/2026. Em set/2026 foram adicionadas quatro funcionalidades
 atualização diária automática de conta e cartão — o sync antigo do Itaú via Cumbuca
 foi desligado. BTG/Nubank/InfinitePay ainda entram pelo fluxo antigo. Em 08/09/2026
 saíram mais três melhorias (abrir no mês atual, **grupo** editável como entidade, e
-reclassificar lançamento com pergunta de escopo estilo calendário).
+reclassificar lançamento com pergunta de escopo estilo calendário) e, à tarde, um lote de
+melhorias na **Triar** (data dd/mm/aaaa, default "Da casa", pergunta de escopo, criar
+categoria inline, receita em verde) — junto com a correção de um bug que reintroduzia a
+regra genérica `PAGAMENTODEPIXQRCO` (armadilha nº7) e o reparo dos 137 lançamentos que ela
+reclassificou errado.
 
 ## Onde vive o projeto (GitHub)
 
@@ -515,3 +519,66 @@ lançamento pontual como `Movimentação › Transferência própria` (`cls = 'N
 **Convenção reforçada:** número travado em asserção que cresce vira ruído — usar piso ou um
 invariante. E alias/regra por prefixo curto e genérico continua proibido, mesmo para um único
 caso conveniente.
+
+---
+
+## Diário — 08/09/2026 (tarde): melhorias na Triar + um bug meu, achado e corrigido
+
+Sessão de melhorias na tela **Triar**, pedidas pelo Juarez. Cada uma saiu como PR próprio,
+para revisão isolada. No meio delas, uma regressão que eu mesmo tinha introduzido no PR #29
+apareceu em produção e virou a prioridade.
+
+**Antes das melhorias, uma correção de impasse (PR #27).** O seletor "Nova subcategoria"
+(tela Categorias) montava a lista de grupos só a partir das subcategorias existentes. Um
+grupo recém-criado nasce vazio (a RPC `criar_grupo` só insere em `grupos`), então nunca
+aparecia no seletor — e sem isso não havia como dar a ele a primeira subcategoria. Foi o
+caso do grupo "outros" que o Juarez criou e não achou na triagem. Correção: o seletor passa
+a unir os grupos de `categorias` com os grupos **ativos** da tabela `grupos`, incluindo os
+vazios.
+
+**Quatro melhorias na Triar (PRs #28, #29, #30, #32):**
+
+- **Data em dd/mm/aaaa e "De quem é" default "Da casa"** (PR #28). Novo `M.dataBR` reordena
+  o texto ISO do banco sem passar por `Date` (mesmo cuidado do `mesAtual()` contra o fuso).
+  Novo `M.CLS_PADRAO` = `Pessoal família`: item novo sem sugestão já vem pré-selecionado
+  como "Da casa".
+- **Pergunta de escopo na Triar** (PR #29). Ao trocar a categoria de um item que **já vinha
+  com sugestão** de regra, abre o diálogo Este / Este e os seguintes / Todos os eventos, no
+  mesmo espírito do PR #24 (Lançamentos). Item novo segue o fluxo direto.
+- **Criar categoria/grupo sem sair da Triar** (PR #30). Link "+ Não achou? Criar categoria":
+  subcategoria para todos; grupo novo só para o gestor (a RPC `criar_grupo` é só-gestor). Ao
+  criar, seleciona a nova subcategoria no campo e marca como mudança.
+- **Receita em verde** (PR #32). Entrada mostra o valor-herói em verde (classe `.positivo`,
+  token `--ok`).
+
+**O bug meu (PR #31) — a armadilha nº7 voltou, por um furo que eu abri.** O Juarez
+reclassificou "Pagamento de Pix QR Code **Barbearia Do Torcedor**" com escopo "Todos os
+eventos" e o app reclassificou **136 lançamentos sem relação** (Posto Marajó etc.) e
+recriou a regra genérica `PAGAMENTODEPIXQRCO`. Causa: a descrição normaliza para 18
+caracteres **antes** do nome do estabelecimento, então "Pagamento de Pix QR Code <QUALQUER
+LOJA>" gera sempre a mesma chave. A varredura em lote já se protegia disso
+(`M.regraEhGenerica`), mas a pergunta de escopo que eu criei no #29 (e a original do #24)
+**não tinha essa guarda**.
+
+Correção (PR #31): novo `M.padraoEhGenericoEm(descricao, tx)` junta as descrições distintas
+que geram a MESMA chave e reusa `regraEhGenerica`. Nas duas telas (Triar e Lançamentos),
+padrão genérico agora só permite "Este evento" — as opções "Seguintes/Todos" somem, com o
+motivo à vista. Trava extra em `aplicarEscopo` rebaixa para "este" mesmo que o escopo chegue
+por outro caminho (defesa em profundidade).
+
+**Correção dos dados em produção (com autorização), `sql/2026-09-08_corrige-pixqrcode-generica.sql`
++ PR #33.** Como o app novo **não grava valor antigo** em `log_alteracoes`, não dava para
+adivinhar a categoria anterior de cada um — a via honesta foi mandar todos de volta à
+triagem. Diagnóstico rodado: **137** lançamentos casavam a chave (136 em Cuidado pessoal ›
+Barbearia, 1 em "Outros › Pequenos Gastos"; nenhum era a barbearia de verdade). O SQL apagou
+a regra `PAGAMENTODEPIXQRCO` e zerou `categoria_id`/`categoria`/`cls` desses 137 (Empréstimo
+de fora). Verificação: `regra_generica_restante = 0` e `ainda_com_categoria = 0`. ✅
+
+⏳ **Pendência do Juarez:** reclassificar na Triar os ~137 que voltaram para a fila. Agora,
+com o #31 no ar, a triagem de qualquer "Pagamento de Pix QR Code ..." só oferece "Este
+evento", então o problema não se repete.
+
+**Lição reforçada (armadilha nº7):** toda operação que **ensina ou reaplica regra** —
+não só a varredura em lote — tem que passar pela checagem de padrão genérico. A pergunta de
+escopo era um caminho novo de ensinar regra, e eu esqueci de blindá-lo. `M.padraoEhGenericoEm`
+agora é o ponto único para essa checagem, disponível antes de qualquer `ensinarRegra`.
