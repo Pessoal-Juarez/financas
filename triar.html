@@ -36,10 +36,15 @@
   .item-lote .d { font-size:.9375rem; word-break:break-word; }
   .item-lote .s { color:var(--muted); font-size:.8125rem; }
   .progresso { color:var(--muted); font-size:.875rem; margin-top:8px; }
-  /* Diálogo de escopo — mesmo padrão de lancamentos.html. */
+  /* Diálogos (escopo e criação de categoria) — mesmo padrão do app. */
   dialog { border:0; border-radius:var(--raio); padding:18px; max-width:440px; width:92vw;
            background:var(--card); color:var(--text); }
   dialog::backdrop { background:rgba(0,0,0,.45); }
+  dialog .campo { margin-top:12px; }
+  dialog .campo label { display:block; color:var(--muted); font-size:.8125rem; margin-bottom:4px; }
+  dialog select, dialog input { width:100%; }
+  dialog input[type=color] { width:44px; min-height:var(--alvo); padding:2px; }
+  /* Opções de escopo (este / seguintes / todos). */
   .escopo { padding:12px 4px; border-bottom:1px solid var(--border2); cursor:pointer;
             display:flex; gap:10px; align-items:flex-start; }
   .escopo:last-of-type { border-bottom:0; }
@@ -47,6 +52,11 @@
                   accent-color:var(--acento); }
   .escopo .rot b { display:block; }
   .escopo .rot span { color:var(--muted); font-size:.8125rem; }
+  /* Criação de categoria inline. */
+  .criar-cat { display:inline-block; margin-top:6px; font-size:.8125rem;
+               color:var(--acento); background:none; border:0; padding:4px 0; cursor:pointer; }
+  .lin-cor { display:flex; gap:8px; align-items:center; }
+  .lin-cor input[type=text] { flex:1; }
 </style>
 </head>
 <body>
@@ -61,6 +71,7 @@
 </div>
 
 <dialog id="dlg"></dialog>
+<dialog id="dlgCat"></dialog>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="assets/modelo.js"></script>
@@ -69,7 +80,7 @@
 <script>
 'use strict';
 const $ = UI.$;
-let TX = [], CATS = [], REGRAS = [];
+let TX = [], CATS = [], REGRAS = [], GRUPOS = [];
 let fila = [], atual = 0, pulados = {};
 
 /* ------------------------------------------------------------------
@@ -165,7 +176,8 @@ function desenhar() {
       '<p class="tri-meta">falta: ' + M.motivoTriagem(t) + '</p>' +
 
       '<div class="campo"><label for="selCat">Categoria</label>' +
-        '<select id="selCat">' + opcoesCategoria(s ? s.categoria_id : t.categoria_id) + '</select></div>' +
+        '<select id="selCat">' + opcoesCategoria(s ? s.categoria_id : t.categoria_id) + '</select>' +
+        '<button type="button" class="criar-cat" id="btnNovaCat">+ Não achou? Criar categoria</button></div>' +
       '<div class="campo"><label for="selCls">De quem é</label>' +
         // Sem sugestão de regra e sem cls ainda: pré-seleciona "Da casa" (o
         // caso mais comum). Com sugestão, respeita a sugestão; se já tem cls
@@ -197,7 +209,175 @@ function desenhar() {
   $('selCat').onchange = marcarMudanca;
   $('selCls').onchange = marcarMudanca;
 
+  // Criar categoria sem sair da triagem: abre o diálogo e, ao criar, já
+  // seleciona a nova subcategoria no campo acima (e marca como mudança,
+  // para virar/corrigir regra ao salvar).
+  $('btnNovaCat').onclick = () => abrirCriarCategoria(s);
+
   $('btnSalvar').onclick = () => salvar(t, s);
+}
+
+/* ------------------------------------------------------------------
+   Criar grupo / subcategoria sem sair da Triar
+   ------------------------------------------------------------------
+   Reusa as mesmas funções da tela Categorias:
+     - subcategoria: DB.criarCategoria (a colab também pode)
+     - grupo: DB.criarGrupo (RPC, SÓ GESTOR — o RLS e a função barram a
+       colab; por isso o campo de grupo novo só aparece para o gestor)
+   Ao criar, recarrega dados, reseleciona a subcategoria nova em #selCat e
+   marca o card como "mudança" para que o salvar ensine/corrija a regra. */
+function opcoesGrupoParaNovaSub() {
+  // Grupos que já têm subcategoria (CATS) unidos aos grupos ATIVOS da
+  // tabela `grupos` — assim um grupo recém-criado e ainda vazio pode
+  // receber a primeira subcategoria (mesma correção da tela Categorias).
+  const nomes = [];
+  CATS.forEach(c => { if (nomes.indexOf(c.grupo) === -1) nomes.push(c.grupo); });
+  GRUPOS.filter(g => g.ativa !== false && g.nome)
+        .sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
+        .forEach(g => { if (nomes.indexOf(g.nome) === -1) nomes.push(g.nome); });
+  return nomes;
+}
+
+function abrirCriarCategoria(sugestao) {
+  const gestor = DB.ehGestor();
+  const grupos = opcoesGrupoParaNovaSub();
+  const dlg = $('dlgCat');
+  dlg.innerHTML =
+    '<p class="titulo" style="margin:0 0 4px">Nova categoria</p>' +
+    '<p class="mudo" style="margin:0;font-size:.8125rem">Escolha o grupo e dê um nome à ' +
+      'subcategoria. Ela já entra selecionada aqui na triagem.</p>' +
+    '<div class="campo"><label for="ncGrupo">Grupo</label>' +
+      '<select id="ncGrupo">' +
+        grupos.map(g => '<option>' + UI.escapar(g) + '</option>').join('') +
+        (gestor ? '<option value="__novo">➕ Novo grupo…</option>' : '') +
+      '</select></div>' +
+
+    // Bloco de grupo novo — só gestor, escondido até escolher "Novo grupo…".
+    (gestor
+      ? '<div id="ncBlocoGrupo" style="display:none">' +
+          '<div class="campo"><label for="ncGrupoNome">Nome do novo grupo</label>' +
+            '<div class="lin-cor">' +
+              '<input id="ncGrupoNome" type="text" autocomplete="off" placeholder="Ex.: Doações">' +
+              '<input id="ncGrupoCor" type="color" value="#2f6df0" aria-label="Cor do grupo">' +
+            '</div></div>' +
+          '<div class="campo"><label for="ncGrupoEixo">Onde entra</label>' +
+            '<select id="ncGrupoEixo">' +
+              '<option value="despesa">Despesa (entra na Análise e no orçamento)</option>' +
+              '<option value="receita">Receita (fora da Análise)</option>' +
+              '<option value="movimentacao">Movimentação (fora da Análise)</option>' +
+            '</select></div>' +
+          '<div class="campo" id="ncLinhaTier"><label for="ncGrupoTier">Tipo de gasto</label>' +
+            '<select id="ncGrupoTier">' +
+              '<option value="">Sem classificação de gasto</option>' +
+              '<option value="fixo">Fixo — chega todo mês</option>' +
+              '<option value="variável">Variável — responde a decisão</option>' +
+              '<option value="adicional">Adicional — o primeiro a cortar</option>' +
+            '</select></div>' +
+        '</div>'
+      : '') +
+
+    '<div class="campo"><label for="ncNome">Nome da subcategoria</label>' +
+      '<input id="ncNome" type="text" autocomplete="off" placeholder="Ex.: Presente"></div>' +
+    '<div class="acoes" style="display:flex;gap:8px;margin-top:16px">' +
+      '<button class="btn" id="ncOk" style="flex:1">Criar e usar</button>' +
+      '<button class="btn alt" id="ncCancel" style="flex:1">Cancelar</button></div>' +
+    '<div id="ncErro"></div>';
+  if (!dlg.open) dlg.showModal();
+
+  const selGrupo = $('ncGrupo');
+  const bloco = $('ncBlocoGrupo');
+  if (selGrupo && bloco) {
+    selGrupo.onchange = () => {
+      bloco.style.display = selGrupo.value === '__novo' ? '' : 'none';
+    };
+  }
+  const selEixo = $('ncGrupoEixo');
+  if (selEixo) selEixo.onchange = () => {
+    const linha = $('ncLinhaTier');
+    if (linha) linha.style.display = selEixo.value === 'despesa' ? '' : 'none';
+  };
+
+  $('ncCancel').onclick = () => dlg.close();
+  $('ncOk').onclick = () => criarCategoriaInline(sugestao);
+}
+
+async function criarCategoriaInline(sugestao) {
+  const dlg = $('dlgCat');
+  const nome = ($('ncNome').value || '').trim();
+  const criarGrupoNovo = $('ncGrupo').value === '__novo';
+  const ok = $('ncOk'), cancel = $('ncCancel');
+  const erro = $('ncErro');
+  erro.innerHTML = '';
+
+  if (!nome) {
+    erro.innerHTML = '<div class="erro-inline">Dê um nome à subcategoria.</div>';
+    return;
+  }
+
+  ok.disabled = true; cancel.disabled = true; ok.textContent = 'Criando…';
+
+  let grupo;
+  if (criarGrupoNovo) {
+    const gNome = ($('ncGrupoNome').value || '').trim();
+    if (!gNome) {
+      ok.disabled = false; cancel.disabled = false; ok.textContent = 'Criar e usar';
+      erro.innerHTML = '<div class="erro-inline">Dê um nome ao novo grupo.</div>';
+      return;
+    }
+    if (GRUPOS.some(g => g.nome.toLowerCase() === gNome.toLowerCase())) {
+      ok.disabled = false; cancel.disabled = false; ok.textContent = 'Criar e usar';
+      erro.innerHTML = '<div class="erro-inline">Já existe um grupo com esse nome.</div>';
+      return;
+    }
+    const eixo = $('ncGrupoEixo').value;
+    const tier = eixo === 'despesa' ? $('ncGrupoTier').value : '';
+    const rg = await DB.criarGrupo(gNome, $('ncGrupoCor').value, tier, eixo);
+    if (rg.erro) {
+      ok.disabled = false; cancel.disabled = false; ok.textContent = 'Criar e usar';
+      erro.innerHTML = '<div class="erro-inline">Não criou o grupo: ' + UI.escapar(rg.erro) + '</div>';
+      return;
+    }
+    grupo = gNome;
+  } else {
+    grupo = $('ncGrupo').value;
+  }
+
+  // Já existe subcategoria com esse nome nesse grupo? Reusa em vez de duplicar.
+  const existente = CATS.find(c => c.grupo === grupo &&
+    c.nome.toLowerCase() === nome.toLowerCase());
+  let novaId;
+  if (existente) {
+    novaId = existente.id;
+  } else {
+    const ordem = Math.max.apply(null,
+      CATS.filter(c => c.grupo === grupo).map(c => c.ordem).concat([0])) + 1;
+    const rc = await DB.criarCategoria(grupo, nome, ordem);
+    if (rc.erro) {
+      ok.disabled = false; cancel.disabled = false; ok.textContent = 'Criar e usar';
+      erro.innerHTML = '<div class="erro-inline">Não criou: ' + UI.escapar(rc.erro) + '</div>';
+      return;
+    }
+    novaId = rc.categoria && rc.categoria.id;
+  }
+
+  // Recarrega grupos e categorias (mantém tx/regras do cache).
+  const d = await DB.tudo(true);
+  TX = d.tx; CATS = d.categorias; REGRAS = d.regras; GRUPOS = d.grupos || [];
+  montarFila();
+
+  dlg.close();
+  UI.toast(existente ? 'Categoria já existia — selecionada' : 'Categoria criada');
+
+  // Redesenha o card e seleciona a nova subcategoria. desenhar() remonta o
+  // #selCat do zero, então a seleção é aplicada depois, sobre o DOM novo.
+  desenhar();
+  const sel = $('selCat');
+  if (sel && novaId) {
+    sel.value = String(novaId);
+    // Trocar a categoria à mão conta como contrariar a sugestão: o salvar
+    // deve ensinar/corrigir a regra. Espelha o efeito do onchange.
+    if (sugestao) { const b = $('btnSalvar'); if (b) b.textContent = 'Salvar e corrigir a regra'; }
+  }
 }
 
 /* ------------------------------------------------------------------
@@ -466,7 +646,7 @@ function telaLote() {
 async function carregar(forcar) {
   try {
     const d = await DB.tudo(forcar);
-    TX = d.tx; CATS = d.categorias; REGRAS = d.regras;
+    TX = d.tx; CATS = d.categorias; REGRAS = d.regras; GRUPOS = d.grupos || [];
     montarFila();
     desenhar();
   } catch (e) {
