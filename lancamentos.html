@@ -273,6 +273,12 @@ async function aplicarNesteLancamento(t, catId, cls) {
 
 function perguntarEscopo(t, catId, cls) {
   const podeRegra = M.podeVirarRegra(M.normalizar(t.descricao));
+  // ⚠️ Armadilha nº7: descrição que normaliza para uma chave compartilhada
+  // por vários estabelecimentos distintos (ex.: "Pagamento de Pix QR Code
+  // ..." -> PAGAMENTODEPIXQRCO). Ensinar/reaplicar a regra reclassificaria
+  // lojas sem relação — então só "Este evento".
+  const generico = M.padraoEhGenericoEm(t.descricao, TX);
+  const ofereceRegra = podeRegra && !generico;
   const dlg = $('dlg');
   dlg.innerHTML =
     '<p class="titulo" style="margin:0 0 4px">Alterar categoria</p>' +
@@ -281,15 +287,19 @@ function perguntarEscopo(t, catId, cls) {
     '<label class="escopo"><input type="radio" name="esc" value="este" checked>' +
       '<span class="rot"><b>Este evento</b>' +
         '<span>Muda só este lançamento. A regra continua como está.</span></span></label>' +
-    (podeRegra
+    (ofereceRegra
       ? '<label class="escopo"><input type="radio" name="esc" value="seguintes">' +
           '<span class="rot"><b>Este e os eventos seguintes</b>' +
             '<span>Muda este e ensina a regra para os próximos. Não mexe nos anteriores.</span></span></label>' +
         '<label class="escopo"><input type="radio" name="esc" value="todos">' +
           '<span class="rot"><b>Todos os eventos</b>' +
             '<span>Muda este, os anteriores com a mesma descrição e os próximos.</span></span></label>'
-      : '<p class="honestidade" style="margin:8px 0 0">A descrição é curta demais para virar ' +
-        'uma regra segura, então só dá para mudar este lançamento.</p>') +
+      : generico
+        ? '<p class="honestidade" style="margin:8px 0 0">A descrição desse lançamento é igual à de ' +
+          'vários estabelecimentos diferentes (o banco corta o nome). Virar regra reclassificaria ' +
+          'lojas sem relação, então só dá para mudar <b>este</b> lançamento.</p>'
+        : '<p class="honestidade" style="margin:8px 0 0">A descrição é curta demais para virar ' +
+          'uma regra segura, então só dá para mudar este lançamento.</p>') +
     '<div class="acoes" style="display:flex;gap:8px;margin-top:16px">' +
       '<button class="btn" id="ok" style="flex:1">OK</button>' +
       '<button class="btn alt" id="cancel" style="flex:1">Cancelar</button></div>' +
@@ -307,6 +317,9 @@ function perguntarEscopo(t, catId, cls) {
 
 async function aplicarEscopo(t, catId, cls, escopo) {
   const cNome = (cat(catId) || {}).nome || null;
+  // Trava de segurança: padrão genérico nunca ensina/reaplica regra
+  // (armadilha nº7). A UI já esconde as opções; isto é a segunda barreira.
+  if (escopo !== 'este' && M.padraoEhGenericoEm(t.descricao, TX)) escopo = 'este';
   const ok = $('ok'), cancel = $('cancel');
   ok.disabled = true; cancel.disabled = true; ok.textContent = 'Aplicando…';
 
