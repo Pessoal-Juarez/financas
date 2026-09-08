@@ -115,6 +115,17 @@ select count(*) as linhas_no_backup from public.backup_pixqrcode_20260908;
 -- Envolvida numa transação: ou aplica tudo, ou nada.
 -- Descomente o bloco abaixo para executar.
 
+-- Diagnóstico de 08/09/2026 (rodado): 137 casam a chave. 136 estão em
+-- Cuidado pessoal › Barbearia (o estrago; 80 com cls Indefinido, o resto
+-- espalhado) e 1 em "Outros › Pequenos Gastos". Nenhum é a categoria certa
+-- do próprio estabelecimento — todos vão para a triagem, inclusive o 1
+-- fora da Barbearia ("Pequenos Gastos" nem é categoria da taxonomia).
+--
+-- O filtro age direto sobre a CHAVE normalizada (não depende do backup),
+-- então é auto-suficiente. Empréstimo fica de fora por precaução.
+--
+-- Descomente o bloco abaixo para executar.
+
 /*
 begin;
 
@@ -126,18 +137,16 @@ begin;
   --     texto categoria (senão o trigger trg_a_resolver_categoria
   --     re-sincroniza o texto). cls volta a 'Indefinido' para caírem na
   --     fila por completo — a triagem reclassifica cada um certo.
-  --
-  --     Emprestimo fica de fora por precaução (cls = 'Empréstimo' nunca
-  --     entra em regra automática e não deveria ter sido tocado).
   update public.transacoes t
      set categoria_id = null,
          categoria    = null,
          cls          = 'Indefinido'
-   where t.id in (select id from public.backup_pixqrcode_20260908)
+   where left(regexp_replace(upper(t.descricao), '[^A-Z]', '', 'g'), 18)
+           = 'PAGAMENTODEPIXQRCO'
      and t.cls <> 'Empréstimo';
 
-  -- Confere: quantas foram para a fila.
-  -- (rode como SELECT depois do commit, ou olhe o "UPDATE N")
+  -- Confira o "UPDATE N" no rodapé: deve ser ~137 (menos eventuais
+  -- Empréstimo, que não devem existir aqui).
 
 commit;
 */
@@ -145,16 +154,17 @@ commit;
 -- =====================================================================
 -- PARTE 3 — VERIFICAÇÃO (depois da PARTE 2)
 -- =====================================================================
--- A regra sumiu?
+-- A regra sumiu? (esperado: 0)
 select count(*) as regra_generica_restante
   from public.regras where padrao = 'PAGAMENTODEPIXQRCO';
 
--- Os afetados estão na fila (categoria_id nulo)?
+-- Ainda há afetado com categoria? (esperado: 0, ou só Empréstimo se houver)
 select count(*) as ainda_com_categoria
   from public.transacoes t
-  join public.backup_pixqrcode_20260908 b on b.id = t.id
- where t.categoria_id is not null;
+ where left(regexp_replace(upper(t.descricao), '[^A-Z]', '', 'g'), 18)
+         = 'PAGAMENTODEPIXQRCO'
+   and t.categoria_id is not null;
 
 -- Depois de reclassificar tudo na Triar e confirmar que ficou certo, dá
--- para descartar o backup:
---   drop table public.backup_pixqrcode_20260908;
+-- para descartar o backup (se ele foi criado na PARTE 0):
+--   drop table if exists public.backup_pixqrcode_20260908;
