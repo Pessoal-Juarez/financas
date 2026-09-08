@@ -13,7 +13,14 @@ App no ar desde 07/08/2026. Em set/2026 foram adicionadas quatro funcionalidades
 atualização diária automática de conta e cartão — o sync antigo do Itaú via Cumbuca
 foi desligado. BTG/Nubank/InfinitePay ainda entram pelo fluxo antigo. Em 08/09/2026
 saíram mais três melhorias (abrir no mês atual, **grupo** editável como entidade, e
-reclassificar lançamento com pergunta de escopo estilo calendário).
+reclassificar lançamento com pergunta de escopo estilo calendário) e, à tarde, um lote de
+melhorias na **Triar** (data dd/mm/aaaa, default "Da casa", pergunta de escopo, criar
+categoria inline, receita em verde) — junto com a correção de um bug que reintroduzia a
+regra genérica `PAGAMENTODEPIXQRCO` (armadilha nº7) e o reparo dos 137 lançamentos que ela
+reclassificou errado. À noite foi atacada a **raiz** dessa armadilha: front e serviço Pluggy
+passam a descartar os prefixos burocráticos "Pagamento de Pix QR Code" e "Pagamento de
+boleto" antes de cortar o padrão em 18 caracteres, então cada estabelecimento volta a ter
+regra própria (PR #35 — exige redeploy do Pluggy no EasyPanel).
 
 ## Onde vive o projeto (GitHub)
 
@@ -515,3 +522,132 @@ lançamento pontual como `Movimentação › Transferência própria` (`cls = 'N
 **Convenção reforçada:** número travado em asserção que cresce vira ruído — usar piso ou um
 invariante. E alias/regra por prefixo curto e genérico continua proibido, mesmo para um único
 caso conveniente.
+
+---
+
+## Diário — 08/09/2026 (tarde): melhorias na Triar + um bug meu, achado e corrigido
+
+Sessão de melhorias na tela **Triar**, pedidas pelo Juarez. Cada uma saiu como PR próprio,
+para revisão isolada. No meio delas, uma regressão que eu mesmo tinha introduzido no PR #29
+apareceu em produção e virou a prioridade.
+
+**Antes das melhorias, uma correção de impasse (PR #27).** O seletor "Nova subcategoria"
+(tela Categorias) montava a lista de grupos só a partir das subcategorias existentes. Um
+grupo recém-criado nasce vazio (a RPC `criar_grupo` só insere em `grupos`), então nunca
+aparecia no seletor — e sem isso não havia como dar a ele a primeira subcategoria. Foi o
+caso do grupo "outros" que o Juarez criou e não achou na triagem. Correção: o seletor passa
+a unir os grupos de `categorias` com os grupos **ativos** da tabela `grupos`, incluindo os
+vazios.
+
+**Quatro melhorias na Triar (PRs #28, #29, #30, #32):**
+
+- **Data em dd/mm/aaaa e "De quem é" default "Da casa"** (PR #28). Novo `M.dataBR` reordena
+  o texto ISO do banco sem passar por `Date` (mesmo cuidado do `mesAtual()` contra o fuso).
+  Novo `M.CLS_PADRAO` = `Pessoal família`: item novo sem sugestão já vem pré-selecionado
+  como "Da casa".
+- **Pergunta de escopo na Triar** (PR #29). Ao trocar a categoria de um item que **já vinha
+  com sugestão** de regra, abre o diálogo Este / Este e os seguintes / Todos os eventos, no
+  mesmo espírito do PR #24 (Lançamentos). Item novo segue o fluxo direto.
+- **Criar categoria/grupo sem sair da Triar** (PR #30). Link "+ Não achou? Criar categoria":
+  subcategoria para todos; grupo novo só para o gestor (a RPC `criar_grupo` é só-gestor). Ao
+  criar, seleciona a nova subcategoria no campo e marca como mudança.
+- **Receita em verde** (PR #32). Entrada mostra o valor-herói em verde (classe `.positivo`,
+  token `--ok`).
+
+**O bug meu (PR #31) — a armadilha nº7 voltou, por um furo que eu abri.** O Juarez
+reclassificou "Pagamento de Pix QR Code **Barbearia Do Torcedor**" com escopo "Todos os
+eventos" e o app reclassificou **136 lançamentos sem relação** (Posto Marajó etc.) e
+recriou a regra genérica `PAGAMENTODEPIXQRCO`. Causa: a descrição normaliza para 18
+caracteres **antes** do nome do estabelecimento, então "Pagamento de Pix QR Code <QUALQUER
+LOJA>" gera sempre a mesma chave. A varredura em lote já se protegia disso
+(`M.regraEhGenerica`), mas a pergunta de escopo que eu criei no #29 (e a original do #24)
+**não tinha essa guarda**.
+
+Correção (PR #31): novo `M.padraoEhGenericoEm(descricao, tx)` junta as descrições distintas
+que geram a MESMA chave e reusa `regraEhGenerica`. Nas duas telas (Triar e Lançamentos),
+padrão genérico agora só permite "Este evento" — as opções "Seguintes/Todos" somem, com o
+motivo à vista. Trava extra em `aplicarEscopo` rebaixa para "este" mesmo que o escopo chegue
+por outro caminho (defesa em profundidade).
+
+**Correção dos dados em produção (com autorização), `sql/2026-09-08_corrige-pixqrcode-generica.sql`
++ PR #33.** Como o app novo **não grava valor antigo** em `log_alteracoes`, não dava para
+adivinhar a categoria anterior de cada um — a via honesta foi mandar todos de volta à
+triagem. Diagnóstico rodado: **137** lançamentos casavam a chave (136 em Cuidado pessoal ›
+Barbearia, 1 em "Outros › Pequenos Gastos"; nenhum era a barbearia de verdade). O SQL apagou
+a regra `PAGAMENTODEPIXQRCO` e zerou `categoria_id`/`categoria`/`cls` desses 137 (Empréstimo
+de fora). Verificação: `regra_generica_restante = 0` e `ainda_com_categoria = 0`. ✅
+
+⏳ **Pendência do Juarez:** reclassificar na Triar os ~137 que voltaram para a fila. Agora,
+com o #31 no ar, a triagem de qualquer "Pagamento de Pix QR Code ..." só oferece "Este
+evento", então o problema não se repete.
+
+**Lição reforçada (armadilha nº7):** toda operação que **ensina ou reaplica regra** —
+não só a varredura em lote — tem que passar pela checagem de padrão genérico. A pergunta de
+escopo era um caminho novo de ensinar regra, e eu esqueci de blindá-lo. `M.padraoEhGenericoEm`
+agora é o ponto único para essa checagem, disponível antes de qualquer `ensinarRegra`.
+
+---
+
+## Diário — 08/09/2026 (noite): a raiz da armadilha nº7 — descarte de prefixo burocrático
+
+A correção da tarde (PR #31) impedia o estrago, mas o Juarez notou o efeito colateral: ao
+triar "Pagamento de Pix QR Code TIM S A", o app só oferecia "Este evento". Ou seja, ele
+tinha perdido a capacidade de criar regra para **qualquer** Pix QR Code — inclusive os
+legítimos. Isso levou à causa raiz de verdade.
+
+**O diagnóstico (medido no banco).** A descrição normaliza cortando em 18 caracteres, e o
+prefixo "Pagamento de Pix QR Code" tem 20 letras — consome a janela inteira **antes** do
+nome do estabelecimento. Então Barbearia, Posto Marajó, TIM, farmácia: todos viram a mesma
+chave `PAGAMENTODEPIXQRCO`. Consulta no banco confirmou que só **dois** prefixos têm esse
+comportamento patológico:
+
+| Prefixo | Chave de 18 | Estab. distintos |
+|---|---|---|
+| "Pagamento de Pix QR Code" | `PAGAMENTODEPIXQRCO` | 85 |
+| "Pagamento de boleto" | `PAGAMENTODEBOLETOC` | 4 |
+
+Redes como `PAGUEMENOS` (28), `AMAZONBR` (17), `EXTRAHIPER` (8) também repetem a chave, mas
+são o **mesmo** estabelecimento com grafia variável — regra legítima, não entram na conta.
+Distinguir os dois casos foi o pulo do gato: o problema não é "chave repetida", é
+"prefixo burocrático longo".
+
+**A correção (PR #35).** Descartar esses dois prefixos **antes** de cortar 18 caracteres,
+para o padrão sair do nome real:
+
+- "Barbearia Do Torcedor" → `BARBEARIADOTORCEDO`
+- "TIM S A" → `TIMSA`
+- "boleto CAGECE..." → `CAGECECIAAGUAESGOT`
+
+Agora cada estabelecimento tem sua regra: a Barbearia sempre vem preenchida, e dá para
+mudar "só esta vez" (comprei uma roupa lá) sem contaminar as próximas. Nome curto demais
+depois do descarte (ex.: Pix → `CEC`) segue barrado por `podeVirarRegra` (mínimo 8 chars):
+só "Este evento".
+
+**Onde mora a normalização — e por que os dois lados importam.** Com o Itaú no Pluggy e os
+crons do Cumbuca desligados (`#CORTE-PLUGGY`), a normalização que gera/casa `regras.padrao`
+vive em **dois** lugares no repositório, e só neles:
+
+1. `assets/modelo.js` — o front, que **ensina** e casa a regra.
+2. `server/pluggy/server.mjs` — o serviço de ingestão, que **casa** a regra no sync diário.
+
+Os dois receberam `PREFIXOS_BUROCRATICOS` + `descartarPrefixo()` **idênticos**. Teste com
+Node confirmou saída byte a byte igual (inclusive com acento) — se divergissem, a regra
+ensinada no app nunca casaria no ingestão (quebra silenciosa, a armadilha central do
+projeto). Os scripts da VPS (`sync.sh` etc.) estão dormentes e só *aplicam* regra por
+"contém", sem gerar padrão de 18 chars, então não precisaram mudar.
+
+**Sem reprocessamento em massa** (decisão do Juarez, mais seguro): os ~137 já estão na fila
+da Triar e reaprendem o padrão certo ao serem re-triados. `sql/2026-09-09_verifica-prefixo-burocratico.sql`
+(só leitura) ajuda a acompanhar.
+
+⏳ **Deploy necessário (do Juarez):** o front republica sozinho no GitHub Pages, mas o
+**serviço Pluggy precisa de redeploy no EasyPanel** (app `pessoal/pluggy`, que builda a
+`main` via Dockerfile) — sem isso, o sync diário continua gerando a chave antiga. Um
+`docker service update --force` **não** basta: ele reinicia com a imagem velha; é preciso o
+"Deploy" do EasyPanel, que rebuilda a imagem a partir da `main`.
+
+**Lição (a versão definitiva da armadilha nº7):** a janela de 18 caracteres é veneno quando
+há prefixo burocrático longo. A defesa não é só "detectar regra genérica depois" — é
+**descartar o prefixo antes de gerar o padrão**, e fazer isso idêntico em todos os pontos
+que normalizam. Se um dia aparecer um terceiro prefixo assim, adicionar em
+`PREFIXOS_BUROCRATICOS` nos dois arquivos (e redeployar o Pluggy).
