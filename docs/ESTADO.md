@@ -17,7 +17,10 @@ reclassificar lançamento com pergunta de escopo estilo calendário) e, à tarde
 melhorias na **Triar** (data dd/mm/aaaa, default "Da casa", pergunta de escopo, criar
 categoria inline, receita em verde) — junto com a correção de um bug que reintroduzia a
 regra genérica `PAGAMENTODEPIXQRCO` (armadilha nº7) e o reparo dos 137 lançamentos que ela
-reclassificou errado.
+reclassificou errado. À noite foi atacada a **raiz** dessa armadilha: front e serviço Pluggy
+passam a descartar os prefixos burocráticos "Pagamento de Pix QR Code" e "Pagamento de
+boleto" antes de cortar o padrão em 18 caracteres, então cada estabelecimento volta a ter
+regra própria (PR #35 — exige redeploy do Pluggy no EasyPanel).
 
 ## Onde vive o projeto (GitHub)
 
@@ -582,3 +585,69 @@ evento", então o problema não se repete.
 não só a varredura em lote — tem que passar pela checagem de padrão genérico. A pergunta de
 escopo era um caminho novo de ensinar regra, e eu esqueci de blindá-lo. `M.padraoEhGenericoEm`
 agora é o ponto único para essa checagem, disponível antes de qualquer `ensinarRegra`.
+
+---
+
+## Diário — 08/09/2026 (noite): a raiz da armadilha nº7 — descarte de prefixo burocrático
+
+A correção da tarde (PR #31) impedia o estrago, mas o Juarez notou o efeito colateral: ao
+triar "Pagamento de Pix QR Code TIM S A", o app só oferecia "Este evento". Ou seja, ele
+tinha perdido a capacidade de criar regra para **qualquer** Pix QR Code — inclusive os
+legítimos. Isso levou à causa raiz de verdade.
+
+**O diagnóstico (medido no banco).** A descrição normaliza cortando em 18 caracteres, e o
+prefixo "Pagamento de Pix QR Code" tem 20 letras — consome a janela inteira **antes** do
+nome do estabelecimento. Então Barbearia, Posto Marajó, TIM, farmácia: todos viram a mesma
+chave `PAGAMENTODEPIXQRCO`. Consulta no banco confirmou que só **dois** prefixos têm esse
+comportamento patológico:
+
+| Prefixo | Chave de 18 | Estab. distintos |
+|---|---|---|
+| "Pagamento de Pix QR Code" | `PAGAMENTODEPIXQRCO` | 85 |
+| "Pagamento de boleto" | `PAGAMENTODEBOLETOC` | 4 |
+
+Redes como `PAGUEMENOS` (28), `AMAZONBR` (17), `EXTRAHIPER` (8) também repetem a chave, mas
+são o **mesmo** estabelecimento com grafia variável — regra legítima, não entram na conta.
+Distinguir os dois casos foi o pulo do gato: o problema não é "chave repetida", é
+"prefixo burocrático longo".
+
+**A correção (PR #35).** Descartar esses dois prefixos **antes** de cortar 18 caracteres,
+para o padrão sair do nome real:
+
+- "Barbearia Do Torcedor" → `BARBEARIADOTORCEDO`
+- "TIM S A" → `TIMSA`
+- "boleto CAGECE..." → `CAGECECIAAGUAESGOT`
+
+Agora cada estabelecimento tem sua regra: a Barbearia sempre vem preenchida, e dá para
+mudar "só esta vez" (comprei uma roupa lá) sem contaminar as próximas. Nome curto demais
+depois do descarte (ex.: Pix → `CEC`) segue barrado por `podeVirarRegra` (mínimo 8 chars):
+só "Este evento".
+
+**Onde mora a normalização — e por que os dois lados importam.** Com o Itaú no Pluggy e os
+crons do Cumbuca desligados (`#CORTE-PLUGGY`), a normalização que gera/casa `regras.padrao`
+vive em **dois** lugares no repositório, e só neles:
+
+1. `assets/modelo.js` — o front, que **ensina** e casa a regra.
+2. `server/pluggy/server.mjs` — o serviço de ingestão, que **casa** a regra no sync diário.
+
+Os dois receberam `PREFIXOS_BUROCRATICOS` + `descartarPrefixo()` **idênticos**. Teste com
+Node confirmou saída byte a byte igual (inclusive com acento) — se divergissem, a regra
+ensinada no app nunca casaria no ingestão (quebra silenciosa, a armadilha central do
+projeto). Os scripts da VPS (`sync.sh` etc.) estão dormentes e só *aplicam* regra por
+"contém", sem gerar padrão de 18 chars, então não precisaram mudar.
+
+**Sem reprocessamento em massa** (decisão do Juarez, mais seguro): os ~137 já estão na fila
+da Triar e reaprendem o padrão certo ao serem re-triados. `sql/2026-09-09_verifica-prefixo-burocratico.sql`
+(só leitura) ajuda a acompanhar.
+
+⏳ **Deploy necessário (do Juarez):** o front republica sozinho no GitHub Pages, mas o
+**serviço Pluggy precisa de redeploy no EasyPanel** (app `pessoal/pluggy`, que builda a
+`main` via Dockerfile) — sem isso, o sync diário continua gerando a chave antiga. Um
+`docker service update --force` **não** basta: ele reinicia com a imagem velha; é preciso o
+"Deploy" do EasyPanel, que rebuilda a imagem a partir da `main`.
+
+**Lição (a versão definitiva da armadilha nº7):** a janela de 18 caracteres é veneno quando
+há prefixo burocrático longo. A defesa não é só "detectar regra genérica depois" — é
+**descartar o prefixo antes de gerar o padrão**, e fazer isso idêntico em todos os pontos
+que normalizam. Se um dia aparecer um terceiro prefixo assim, adicionar em
+`PREFIXOS_BUROCRATICOS` nos dois arquivos (e redeployar o Pluggy).
