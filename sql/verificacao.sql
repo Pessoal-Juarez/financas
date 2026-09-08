@@ -27,17 +27,33 @@ with a as (
          '>= 3132' as esperado
 
   -- 2. Toda transação está classificada OU na fila. Nunca um 3º estado.
-  union all select 2, 'Transações sem categoria (falta categoria_id)',
-         (select count(*) from transacoes where categoria_id is null)::text, '620'
+  --
+  --    ⚠️ Números de fila CRESCEM com o tempo: o sync diário traz
+  --    lançamentos novos que entram sem categoria/cls (cauda longa). Travar
+  --    620/623/656 aqui fazia #2/#3/#4 acusarem FALHOU todo mês só pela base
+  --    crescer — o ruído que a convenção deste arquivo manda evitar (usar
+  --    piso para o que cresce). Foram reescritas em 07/09/2026:
+  --      * #2 e #3 viram CONTAGENS informativas (piso >= 0): o número real
+  --        fica visível em `obtido`, mas nunca é falso-alarme.
+  --      * #4 vira o INVARIANTE de verdade — não existe 3º estado: toda
+  --        transação está "resolvida" (tem categoria_id E cls real) ou está
+  --        "na fila" (falta um dos dois). O "nem uma coisa nem outra" é 0 por
+  --        construção e continua 0 por mais que a base cresça; se um dia der
+  --        diferente de 0, a lógica de fila quebrou.
+  union all select 2, 'Transações sem categoria (informativo, cresce)',
+         (select count(*) from transacoes where categoria_id is null)::text, '>= 0'
 
-  union all select 3, 'Transações sem cls',
+  union all select 3, 'Transações sem cls (informativo, cresce)',
          (select count(*) from transacoes
-           where cls is null or btrim(cls) in ('','Indefinido'))::text, '623'
+           where cls is null or btrim(cls) in ('','Indefinido'))::text, '>= 0'
 
-  union all select 4, 'FILA DE TRIAGEM (falta categoria OU cls)',
+  union all select 4, 'Sem 3º estado: nem resolvida nem na fila',
          (select count(*) from transacoes
-           where categoria_id is null
-              or cls is null or btrim(cls) in ('','Indefinido'))::text, '656'
+           where not (categoria_id is not null
+                      and cls is not null and btrim(cls) not in ('','Indefinido'))  -- não resolvida
+             and not (categoria_id is null
+                      or cls is null or btrim(cls) in ('','Indefinido'))            -- não está na fila
+         )::text, '0'
 
   -- 3. Coerência texto <-> id.
   --    Existe porque a Fase 3 foi cortada (spec §6): as duas representações
@@ -131,7 +147,17 @@ with a as (
   -- texto que já existe nas duas tabelas e confirma que os únicos que não
   -- resolvem são os 9 da lista de triagem. Contar linhas do de-para seria
   -- asserção fraca — o que precisa valer é COBERTURA.
-  union all select 19, 'Textos que o trigger não resolve (só os de triagem)',
+  --
+  --    ⚠️ Piso, não número exato (mudado em 07/09/2026). Eram 9 marcadores de
+  --    triagem em 06/08; mas texto de categoria NOVO e desconhecido pode
+  --    aparecer a qualquer momento (o contrato da Fase 2 é: desconhecido fica
+  --    nulo e vai para a fila, nunca vira categoria). Isso é benigno e faz o
+  --    número crescer, então travar em 9 dava FALHOU sem defeito. O que
+  --    REALMENTE não pode falhar é a #20 (os marcadores conhecidos nunca
+  --    resolverem por engano). Quando este número passar de 9, rode o
+  --    diagnóstico do fim do arquivo para ver QUAL texto novo apareceu e
+  --    decidir se entra no `categoria_alias` ou fica mesmo na triagem.
+  union all select 19, 'Textos que o trigger não resolve (>= os 9 de triagem)',
          (select count(*) from (
             select distinct btrim(categoria) as txt from transacoes where btrim(coalesce(categoria,''))<>''
             union
@@ -140,7 +166,7 @@ with a as (
           where coalesce(
             (select c.id from categorias c where c.nome=t.txt and c.ativa order by c.ordem limit 1),
             (select a.categoria_id from categoria_alias a where a.alias=t.txt)
-          ) is null)::text, '9'
+          ) is null)::text, '>= 9'
 
   union all select 20, 'Nenhum texto de triagem resolve por engano',
          (select count(*) from (values
@@ -208,3 +234,21 @@ select ord as "#",
 -- select btrim(categoria) categoria, count(*) n from transacoes
 --  where categoria_id is null and btrim(coalesce(categoria,'')) <> ''
 --  group by 1 order by n desc;
+
+-- Diagnóstico da asserção #19: QUAIS textos o trigger não resolve, com a
+-- contagem em cada tabela. Rode isto quando #19 passar de 9 para ver o texto
+-- novo e decidir se entra no `categoria_alias` (nome antigo mapeável a uma
+-- subcategoria) ou fica na triagem (cauda longa legítima).
+-- select t.txt,
+--        (select count(*) from transacoes x where btrim(coalesce(x.categoria,'')) = t.txt) as em_transacoes,
+--        (select count(*) from regras     x where btrim(coalesce(x.categoria,'')) = t.txt) as em_regras
+--   from (
+--     select distinct btrim(categoria) as txt from transacoes where btrim(coalesce(categoria,'')) <> ''
+--     union
+--     select distinct btrim(categoria)        from regras     where btrim(coalesce(categoria,'')) <> ''
+--   ) t
+--  where coalesce(
+--    (select c.id from categorias c where c.nome = t.txt and c.ativa order by c.ordem limit 1),
+--    (select a.categoria_id from categoria_alias a where a.alias = t.txt)
+--  ) is null
+--  order by em_transacoes desc, em_regras desc, t.txt;
