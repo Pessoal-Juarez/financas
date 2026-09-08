@@ -26,6 +26,24 @@
   .etiq.pend { background:var(--badge-bg); color:var(--badge-fg); font-weight:600; }
   .resumo { display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
   .mais { text-align:center; margin-top:12px; }
+  /* Linha clicável para reclassificar. Alvo de toque: a linha inteira. */
+  .lin.edita { cursor:pointer; }
+  .lin.edita:hover { background:var(--border2); border-radius:8px; }
+  .lin .abrir { align-self:center; color:var(--muted); font-size:1rem; }
+  dialog { border:0; border-radius:var(--raio); padding:18px; max-width:440px; width:92vw;
+           background:var(--card); color:var(--text); }
+  dialog::backdrop { background:rgba(0,0,0,.45); }
+  dialog .campo { margin-top:12px; }
+  dialog .campo label { display:block; color:var(--muted); font-size:.8125rem; margin-bottom:4px; }
+  dialog select { width:100%; }
+  /* Opções de escopo, estilo "editar evento recorrente". */
+  .escopo { display:block; padding:12px 4px; border-bottom:1px solid var(--border2);
+            cursor:pointer; display:flex; gap:10px; align-items:flex-start; }
+  .escopo:last-of-type { border-bottom:0; }
+  .escopo input { min-height:22px; width:22px; height:22px; margin-top:1px; flex:none;
+                  accent-color:var(--acento); }
+  .escopo .rot b { display:block; }
+  .escopo .rot span { color:var(--muted); font-size:.8125rem; }
 </style>
 </head>
 <body>
@@ -38,6 +56,8 @@
 <div class="envolucro" id="tela">
   <div class="cartao"><div class="esqueleto"><div class="esq-linha"><div class="esq"></div></div></div></div>
 </div>
+
+<dialog id="dlg"></dialog>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="assets/modelo.js"></script>
@@ -54,7 +74,7 @@ const $ = UI.$;
    não sobre o que foi desenhado. */
 const PAGE = 200;
 
-let TX = [], CATS = [], mostrando = PAGE;
+let TX = [], CATS = [], REGRAS = [], mostrando = PAGE;
 let f = { q: '', mes: '', cls: '', grupo: '', tipo: 'saida' };
 let debounce = null;
 
@@ -121,7 +141,13 @@ function desenhar(resetPagina) {
         ? linhas.map(t => {
             const c = cat(t.categoria_id);
             const pend = M.precisaTriagem(t);
-            return '<div class="lin">' +
+            // Só lançamentos JÁ categorizados são editáveis aqui — os
+            // pendentes são trabalho da tela Triar. Reclassificar um já
+            // categorizado é o que dispara a pergunta de escopo.
+            const editavel = !pend;
+            return '<div class="lin' + (editavel ? ' edita' : '') + '"' +
+                (editavel ? ' data-edit="' + t.id + '" role="button" tabindex="0" ' +
+                  'aria-label="Reclassificar ' + UI.escapar(t.descricao) + '"' : '') + '>' +
               '<span class="txt">' +
                 '<span class="d">' + UI.escapar(t.descricao) + '</span>' +
                 '<span class="s">' + UI.escapar(t.data) + ' · ' + UI.escapar(t.src || '') +
@@ -134,6 +160,7 @@ function desenhar(resetPagina) {
                 '</span>' +
               '</span>' +
               '<span class="v valor">' + UI.BRL(t.valor) + '</span>' +
+              (editavel ? '<span class="abrir" aria-hidden="true">✎</span>' : '') +
             '</div>';
           }).join('')
         : '<p class="mudo" style="margin:0">Nenhum lançamento com esses filtros.</p>') +
@@ -161,12 +188,188 @@ function desenhar(resetPagina) {
   $('fcls').onchange = e => { f.cls = e.target.value; desenhar(true); };
   $('fgrupo').onchange = e => { f.grupo = e.target.value; desenhar(true); };
   if ($('btnMais')) $('btnMais').onclick = () => { mostrando += PAGE; desenhar(false); };
+
+  document.querySelectorAll('[data-edit]').forEach(el => {
+    const abrir = () => reclassificar(Number(el.dataset.edit));
+    el.onclick = abrir;
+    el.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrir(); } };
+  });
+}
+
+/* ------------------------------------------------------------------
+   Reclassificar um lançamento JÁ categorizado
+   ------------------------------------------------------------------
+   O diálogo deixa mudar a categoria (e a classificação). Ao confirmar, se
+   a CATEGORIA mudou, pergunta o ESCOPO (este / este e os seguintes /
+   todos), no espírito do "editar evento recorrente" do calendário — porque
+   aqui "recorrente" é a regra por descrição que a triagem ensinou. */
+function opcoesCategoria(sel) {
+  const grupos = [];
+  CATS.forEach(c => { if (c.ativa && grupos.indexOf(c.grupo) === -1) grupos.push(c.grupo); });
+  return grupos.map(g =>
+    '<optgroup label="' + UI.escapar(g) + '">' +
+    CATS.filter(c => c.grupo === g && c.ativa).map(c =>
+      '<option value="' + c.id + '"' + (c.id === sel ? ' selected' : '') + '>' +
+      UI.escapar(c.nome) + '</option>').join('') +
+    '</optgroup>').join('');
+}
+
+function opcoesCls(sel) {
+  return M.CLS.filter(c => c !== M.CLS_INDEFINIDO).map(c =>
+    '<option value="' + UI.escapar(c) + '"' + (c === sel ? ' selected' : '') + '>' +
+    UI.escapar(M.rotulo(c)) + '</option>').join('');
+}
+
+function reclassificar(id) {
+  const t = TX.find(x => x.id === id);
+  if (!t) return;
+  const c = cat(t.categoria_id);
+  const dlg = $('dlg');
+  dlg.innerHTML =
+    '<p class="titulo" style="margin:0 0 4px">Reclassificar</p>' +
+    '<p class="mudo" style="margin:0">' + UI.escapar(t.descricao) + '</p>' +
+    '<p class="mudo" style="font-size:.8125rem;margin:2px 0 0">' +
+      UI.escapar(t.data) + ' · ' + UI.BRL(t.valor) +
+      (c ? ' · hoje em ' + UI.escapar(c.grupo + ' › ' + c.nome) : '') + '</p>' +
+    '<div class="campo"><label for="edCat">Categoria</label>' +
+      '<select id="edCat">' + opcoesCategoria(t.categoria_id) + '</select></div>' +
+    '<div class="campo"><label for="edCls">De quem é</label>' +
+      '<select id="edCls">' + opcoesCls(t.cls) + '</select></div>' +
+    '<div class="acoes" style="display:flex;gap:8px;margin-top:16px">' +
+      '<button class="btn" id="ok" style="flex:1">Salvar</button>' +
+      '<button class="btn alt" id="cancel" style="flex:1">Cancelar</button></div>' +
+    '<div id="erroDlg"></div>';
+  if (!dlg.open) dlg.showModal();
+  $('cancel').onclick = () => dlg.close();
+  $('ok').onclick = () => {
+    const novaCat = Number($('edCat').value) || null;
+    const novaCls = $('edCls').value || t.cls;
+    const mudouCat = novaCat !== t.categoria_id;
+    // Só a categoria dispara a pergunta de escopo. Se só a classificação
+    // mudou (ou nada), aplica direto só neste lançamento.
+    if (!mudouCat) {
+      aplicarNesteLancamento(t, novaCat, novaCls);
+      return;
+    }
+    perguntarEscopo(t, novaCat, novaCls);
+  };
+}
+
+// Só este lançamento: não mexe em regra.
+async function aplicarNesteLancamento(t, catId, cls) {
+  const cNome = (cat(catId) || {}).nome || null;
+  const r = await DB.classificar(t.id, { categoria_id: catId, categoria: cNome, cls: cls });
+  if (r.erro) {
+    $('erroDlg').innerHTML = '<p class="honestidade" style="color:var(--perigo)">' +
+      'Não salvou: ' + UI.escapar(r.erro) + '</p>';
+    return;
+  }
+  const alvo = TX.find(x => x.id === t.id);
+  if (alvo) { alvo.categoria_id = catId; alvo.categoria = cNome; alvo.cls = cls; }
+  $('dlg').close();
+  UI.toast('Alterado só neste lançamento');
+  desenhar(false);
+}
+
+function perguntarEscopo(t, catId, cls) {
+  const podeRegra = M.podeVirarRegra(M.normalizar(t.descricao));
+  const dlg = $('dlg');
+  dlg.innerHTML =
+    '<p class="titulo" style="margin:0 0 4px">Alterar categoria</p>' +
+    '<p class="mudo" style="margin:0 0 10px">Vale só para este lançamento ou também ' +
+      'para os próximos com a mesma descrição?</p>' +
+    '<label class="escopo"><input type="radio" name="esc" value="este" checked>' +
+      '<span class="rot"><b>Este evento</b>' +
+        '<span>Muda só este lançamento. A regra continua como está.</span></span></label>' +
+    (podeRegra
+      ? '<label class="escopo"><input type="radio" name="esc" value="seguintes">' +
+          '<span class="rot"><b>Este e os eventos seguintes</b>' +
+            '<span>Muda este e ensina a regra para os próximos. Não mexe nos anteriores.</span></span></label>' +
+        '<label class="escopo"><input type="radio" name="esc" value="todos">' +
+          '<span class="rot"><b>Todos os eventos</b>' +
+            '<span>Muda este, os anteriores com a mesma descrição e os próximos.</span></span></label>'
+      : '<p class="honestidade" style="margin:8px 0 0">A descrição é curta demais para virar ' +
+        'uma regra segura, então só dá para mudar este lançamento.</p>') +
+    '<div class="acoes" style="display:flex;gap:8px;margin-top:16px">' +
+      '<button class="btn" id="ok" style="flex:1">OK</button>' +
+      '<button class="btn alt" id="cancel" style="flex:1">Cancelar</button></div>' +
+    '<div id="progresso" class="mudo" style="font-size:.8125rem;margin-top:8px"></div>' +
+    '<div id="erroDlg"></div>';
+  // O diálogo já está aberto (veio da reclassificação); só troca o conteúdo.
+  // Chamar showModal() de novo num <dialog> aberto lança InvalidStateError.
+  if (!dlg.open) dlg.showModal();
+  $('cancel').onclick = () => dlg.close();
+  $('ok').onclick = () => {
+    const sel = (document.querySelector('input[name=esc]:checked') || {}).value || 'este';
+    aplicarEscopo(t, catId, cls, sel);
+  };
+}
+
+async function aplicarEscopo(t, catId, cls, escopo) {
+  const cNome = (cat(catId) || {}).nome || null;
+  const ok = $('ok'), cancel = $('cancel');
+  ok.disabled = true; cancel.disabled = true; ok.textContent = 'Aplicando…';
+
+  // 1. Sempre altera o lançamento em questão.
+  const r0 = await DB.classificar(t.id, { categoria_id: catId, categoria: cNome, cls: cls });
+  if (r0.erro) {
+    ok.disabled = false; cancel.disabled = false; ok.textContent = 'OK';
+    $('erroDlg').innerHTML = '<p class="honestidade" style="color:var(--perigo)">' +
+      'Não salvou: ' + UI.escapar(r0.erro) + '</p>';
+    return;
+  }
+  const alvo = TX.find(x => x.id === t.id);
+  if (alvo) { alvo.categoria_id = catId; alvo.categoria = cNome; alvo.cls = cls; }
+
+  // 2. "seguintes" e "todos" ensinam/atualizam a regra (vale para os
+  //    próximos lançamentos ingeridos pela VPS/Pluggy).
+  let msg = 'Alterado só neste lançamento';
+  if (escopo === 'seguintes' || escopo === 'todos') {
+    const re = await DB.ensinarRegra(t.descricao, catId, cNome, cls);
+    if (re.ok) { REGRAS = await DB.regras(true); msg = 'Alterado e regra atualizada'; }
+    else if (re.motivo === 'padrao-curto') {
+      msg = 'Alterado. A descrição é curta demais para virar regra.';
+    }
+  }
+
+  // 3. "todos" reaplica aos lançamentos com a mesma descrição (anteriores e
+  //    quaisquer outros que casem o padrão da regra), por "contém", igual
+  //    ao motor de regras. Empréstimo fica de fora — a mesma pessoa aparece
+  //    em contextos diferentes e nunca vira regra automática.
+  if (escopo === 'todos') {
+    // Casa exatamente como o motor de regras casará no futuro: usa
+    // M.regraQueCasa contra a regra recém-ensinada. Assim o que é
+    // reaplicado agora é idêntico ao que a regra pegará daqui pra frente —
+    // sem retro divergindo do futuro.
+    const padrao = M.normalizar(t.descricao);
+    const regraNova = [{ padrao: padrao, categoria_id: catId }];
+    const alvos = TX.filter(x => x.id !== t.id && x.categoria_id !== catId &&
+      x.cls !== 'Empréstimo' && M.regraQueCasa(x.descricao, regraNova));
+    if (alvos.length) {
+      const res = await DB.aplicarLote(
+        alvos.map(x => ({ id: x.id, mudancas: { categoria_id: catId, categoria: cNome } })),
+        (feitos, total) => { const p = $('progresso'); if (p) p.textContent = feitos + ' de ' + total; }
+      );
+      alvos.forEach(x => {
+        if (res.falhas.some(fa => fa.id === x.id)) return;
+        const a2 = TX.find(y => y.id === x.id);
+        if (a2) { a2.categoria_id = catId; a2.categoria = cNome; }
+      });
+      msg = res.ok + ' lançamento' + (res.ok === 1 ? '' : 's') + ' atualizado' +
+        (res.ok === 1 ? '' : 's') + (res.falhas.length ? ', ' + res.falhas.length + ' falharam' : '') +
+        ' · regra atualizada';
+    }
+  }
+
+  $('dlg').close();
+  UI.toast(msg);
+  desenhar(false);
 }
 
 async function carregar(forcar) {
   try {
     const d = await DB.tudo(forcar);
-    TX = d.tx; CATS = d.categorias;
+    TX = d.tx; CATS = d.categorias; REGRAS = d.regras || [];
     desenhar(true);
   } catch (e) {
     UI.erro($('tela'), e.message, () => carregar(true));
