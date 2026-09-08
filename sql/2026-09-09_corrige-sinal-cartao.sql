@@ -50,15 +50,26 @@ select count(*) as linhas_no_backup from public.backup_sinal_cartao_20260909;
 -- =====================================================================
 -- Troca entrada<->saida num ÚNICO update com CASE. Sem valor-sentinela
 -- (evita esbarrar num CHECK que só aceite 'entrada'/'saida') e sem risco
--- de um update desfazer o outro. Numa transação por segurança.
+-- de um update desfazer o outro.
+--
+-- ⚠️ O trigger trg_trava_colunas_transacao BLOQUEIA alterar `tipo` para
+-- quem não é gestor — e no SQL Editor `is_admin()` é falso (sem usuário
+-- autenticado), então ele barra mesmo você sendo o dono do banco. Por isso
+-- desabilitamos o trigger SÓ durante esta transação e reabilitamos no fim.
+-- Tudo num begin/commit: se algo falhar, nada muda e o trigger volta ativo.
+-- (Requer ser superusuário/dono da tabela, o que o SQL Editor é.)
 /*
 begin;
+
+  alter table public.transacoes disable trigger trg_trava_colunas_transacao;
 
   update public.transacoes
      set tipo = case tipo when 'entrada' then 'saida' else 'entrada' end
    where src = 'Cartão'
      and ext_id is not null
      and tipo in ('entrada','saida');
+
+  alter table public.transacoes enable trigger trg_trava_colunas_transacao;
 
 commit;
 */
