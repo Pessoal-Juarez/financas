@@ -172,7 +172,9 @@ function desenhar() {
         '<span class="tri-meta">' + (atual + 1) + ' de ' + restantes.length + '</span>' +
       '</div>' +
       '<p class="tri-desc">' + UI.escapar(t.descricao) + '</p>' +
-      '<p class="tri-valor valor">' + UI.BRL(t.valor) + '</p>' +
+      // Receita (entrada) em verde: sinaliza que é dinheiro entrando, não
+      // gasto. Usa o token --ok via a classe .positivo (mesma cor do app).
+      '<p class="tri-valor valor' + (M.ehSaida(t) ? '' : ' positivo') + '">' + UI.BRL(t.valor) + '</p>' +
       '<p class="tri-meta">falta: ' + M.motivoTriagem(t) + '</p>' +
 
       '<div class="campo"><label for="selCat">Categoria</label>' +
