@@ -456,6 +456,12 @@ async function gravar(t, sugestao, catId, cls) {
    ensina. Só aparece quando havia sugestão e a CATEGORIA mudou. */
 function perguntarEscopo(t, sugestao, catId, cls) {
   const podeRegra = M.podeVirarRegra(M.normalizar(t.descricao));
+  // ⚠️ Armadilha nº7: quando a descrição normaliza para uma chave que casa
+  // vários estabelecimentos DISTINTOS (ex.: "Pagamento de Pix QR Code ..."
+  // -> PAGAMENTODEPIXQRCO), ensinar/reaplicar a regra reclassificaria dezenas
+  // de lançamentos sem relação. Nesse caso só se permite "Este evento".
+  const generico = M.padraoEhGenericoEm(t.descricao, TX);
+  const ofereceRegra = podeRegra && !generico;
   const dlg = $('dlg');
   dlg.innerHTML =
     '<p class="titulo" style="margin:0 0 4px">Alterar categoria</p>' +
@@ -465,15 +471,19 @@ function perguntarEscopo(t, sugestao, catId, cls) {
     '<label class="escopo"><input type="radio" name="esc" value="este" checked>' +
       '<span class="rot"><b>Este evento</b>' +
         '<span>Muda só este lançamento. A regra continua como está.</span></span></label>' +
-    (podeRegra
+    (ofereceRegra
       ? '<label class="escopo"><input type="radio" name="esc" value="seguintes">' +
           '<span class="rot"><b>Este e os eventos seguintes</b>' +
             '<span>Muda este e corrige a regra para os próximos. Não mexe nos anteriores.</span></span></label>' +
         '<label class="escopo"><input type="radio" name="esc" value="todos">' +
           '<span class="rot"><b>Todos os eventos</b>' +
             '<span>Muda este, os anteriores com a mesma descrição e os próximos.</span></span></label>'
-      : '<p class="honestidade" style="margin:8px 0 0">A descrição é curta demais para virar ' +
-        'uma regra segura, então só dá para mudar este lançamento.</p>') +
+      : generico
+        ? '<p class="honestidade" style="margin:8px 0 0">A descrição desse lançamento é igual à de ' +
+          'vários estabelecimentos diferentes (o banco corta o nome). Virar regra reclassificaria ' +
+          'lojas sem relação, então só dá para mudar <b>este</b> lançamento.</p>'
+        : '<p class="honestidade" style="margin:8px 0 0">A descrição é curta demais para virar ' +
+          'uma regra segura, então só dá para mudar este lançamento.</p>') +
     '<div class="acoes" style="display:flex;gap:8px;margin-top:16px">' +
       '<button class="btn" id="okEsc" style="flex:1">OK</button>' +
       '<button class="btn alt" id="cancelEsc" style="flex:1">Cancelar</button></div>' +
@@ -489,6 +499,10 @@ function perguntarEscopo(t, sugestao, catId, cls) {
 
 async function aplicarEscopo(t, sugestao, catId, cls, escopo) {
   const cNome = (catPorId(catId) || {}).nome || null;
+  // Trava de segurança: mesmo que o escopo chegue como "seguintes/todos",
+  // padrão genérico nunca ensina nem reaplica regra (armadilha nº7). Rebaixa
+  // para "este". A UI já esconde as opções, isto é a segunda barreira.
+  if (escopo !== 'este' && M.padraoEhGenericoEm(t.descricao, TX)) escopo = 'este';
   const ok = $('okEsc'), cancel = $('cancelEsc');
   ok.disabled = true; cancel.disabled = true; ok.textContent = 'Aplicando…';
 

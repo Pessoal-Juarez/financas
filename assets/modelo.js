@@ -253,6 +253,28 @@
     return Object.keys(chaves).length === 1 && Object.keys(distintas).length >= 3;
   }
 
+  /* Decide se ENSINAR uma regra a partir de `descricao` seria genérico
+     demais, olhando os dados reais. Junta todas as descrições distintas de
+     `tx` que produzem A MESMA chave normalizada (o `padrao` que a regra
+     teria) e passa por `regraEhGenerica`.
+
+     É a mesma proteção da varredura em lote (que DESMARCA sugestões vindas
+     de regra genérica), agora disponível ANTES de ensinar/reaplicar — para
+     a pergunta de escopo "Todos/Seguintes" não recriar a armadilha nº 7:
+     'Pagamento de Pix QR Code <QUALQUER LOJA>' -> PAGAMENTODEPIXQRCO, uma
+     chave que casa dezenas de estabelecimentos sem relação. */
+  function padraoEhGenericoEm(descricao, tx) {
+    var chave = normalizar(descricao);
+    if (!chave) return false;
+    var distintas = {};
+    for (var i = 0; i < tx.length; i++) {
+      var d = tx[i] && tx[i].descricao;
+      if (!d) continue;
+      if (normalizar(d) === chave) distintas[d] = 1;
+    }
+    return regraEhGenerica(Object.keys(distintas));
+  }
+
   /* ------------------------------------------------------------------
      Estado de um lançamento — a fila de triagem sai daqui
      ------------------------------------------------------------------
@@ -669,7 +691,7 @@
     normalizar: normalizar, normalizarSemDobra: normalizarSemDobra,
     regraQueCasa: regraQueCasa,
     podeVirarRegra: podeVirarRegra, PREFIXO_MINIMO_REGRA: PREFIXO_MINIMO_REGRA,
-    regraEhGenerica: regraEhGenerica,
+    regraEhGenerica: regraEhGenerica, padraoEhGenericoEm: padraoEhGenericoEm,
     faltaCls: faltaCls, faltaCategoria: faltaCategoria,
     precisaTriagem: precisaTriagem, motivoTriagem: motivoTriagem,
     ehCustoDeVida: ehCustoDeVida, ehEmpresa: ehEmpresa, ehSaida: ehSaida,
