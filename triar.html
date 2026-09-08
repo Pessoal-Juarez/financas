@@ -144,7 +144,7 @@ function desenhar() {
   $('tela').innerHTML = cartaoLote +
     '<div class="cartao">' +
       '<div class="tri-topo">' +
-        '<span class="tri-meta">' + UI.escapar(t.data) + ' · ' + UI.escapar(t.src || '') + '</span>' +
+        '<span class="tri-meta">' + UI.escapar(M.dataBR(t.data)) + ' · ' + UI.escapar(t.src || '') + '</span>' +
         '<span class="tri-meta">' + (atual + 1) + ' de ' + restantes.length + '</span>' +
       '</div>' +
       '<p class="tri-desc">' + UI.escapar(t.descricao) + '</p>' +
@@ -154,7 +154,10 @@ function desenhar() {
       '<div class="campo"><label for="selCat">Categoria</label>' +
         '<select id="selCat">' + opcoesCategoria(s ? s.categoria_id : t.categoria_id) + '</select></div>' +
       '<div class="campo"><label for="selCls">De quem é</label>' +
-        '<select id="selCls">' + opcoesCls(s ? s.cls : (M.faltaCls(t) ? '' : t.cls)) + '</select></div>' +
+        // Sem sugestão de regra e sem cls ainda: pré-seleciona "Da casa" (o
+        // caso mais comum). Com sugestão, respeita a sugestão; se já tem cls
+        // (faltava só categoria), mantém o cls existente.
+        '<select id="selCls">' + opcoesCls(s ? s.cls : (M.faltaCls(t) ? M.CLS_PADRAO : t.cls)) + '</select></div>' +
 
       (s
         ? '<p class="fonte regra">Sugerido pela regra <code>' + UI.escapar(s.regra.padrao) + '</code>. ' +
@@ -281,7 +284,7 @@ function telaLote() {
             '<input type="checkbox"' + (it.generica ? '' : ' checked') + ' data-i="' + i + '">' +
             '<span class="txt">' +
               '<span class="d">' + UI.escapar(it.t.descricao) + '</span><br>' +
-              '<span class="s">' + UI.escapar(it.t.data) + ' · ' + UI.BRL(it.t.valor) + ' → ' +
+              '<span class="s">' + UI.escapar(M.dataBR(it.t.data)) + ' · ' + UI.BRL(it.t.valor) + ' → ' +
                 UI.escapar(nomeCat(it.s.categoria_id)) + ' · ' + UI.escapar(M.rotulo(it.s.cls)) +
                 (it.generica
                   ? '<br><b style="color:var(--badge-fg)">regra genérica (' +

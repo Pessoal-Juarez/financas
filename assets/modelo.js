@@ -55,6 +55,13 @@
   var CLS_INDEFINIDO = 'Indefinido';
   var CLS_NAO_CONTA = 'Não é gasto';
 
+  // A escolha mais provável quando se classifica um gasto novo à mão: é da
+  // casa (custo de vida da família). Serve de pré-seleção na Triar — só um
+  // atalho, o usuário troca se for outra pessoa/empresa. NÃO é sugestão de
+  // regra (essas vêm de `regras`); é só o default do campo quando não há
+  // nada melhor a propor.
+  var CLS_PADRAO = 'Pessoal família';
+
   /* ------------------------------------------------------------------
      Grupos de categoria
      ------------------------------------------------------------------
@@ -594,6 +601,17 @@
     return MES_CURTO[Number(p[1]) - 1] + '/' + p[0].slice(2);
   }
 
+  // Data no formato brasileiro: 'AAAA-MM-DD' -> 'DD/MM/AAAA'. As datas do
+  // banco chegam como texto ISO (ordenável) — aqui só reordenamos os
+  // pedaços para exibição, sem passar por Date (evita o bug de fuso do
+  // toISOString/UTC perto da meia-noite, o mesmo cuidado de mesAtual()).
+  function dataBR(data) {
+    var s = String(data || '').slice(0, 10);
+    var p = s.split('-');
+    if (p.length !== 3) return s;   // formato inesperado: devolve como veio
+    return p[2] + '/' + p[1] + '/' + p[0];
+  }
+
   // Os n meses ANTERIORES a `mesRef`, do mais recente para o mais antigo.
   function mesesAnteriores(mesRef, n) {
     var p = String(mesRef).split('-');
@@ -642,6 +660,7 @@
     CLS: CLS, ROTULO_CLS: ROTULO_CLS, COR_CLS: COR_CLS,
     CUSTO_DE_VIDA: CUSTO_DE_VIDA, EMPRESAS: EMPRESAS,
     CLS_INDEFINIDO: CLS_INDEFINIDO, CLS_NAO_CONTA: CLS_NAO_CONTA,
+    CLS_PADRAO: CLS_PADRAO,
     GRUPOS_DESPESA: GRUPOS_DESPESA,
     GRUPO_RECEITAS: GRUPO_RECEITAS, GRUPO_MOVIMENTACAO: GRUPO_MOVIMENTACAO,
     COR_GRUPO: COR_GRUPO, TIER: TIER, hidratarGrupos: hidratarGrupos,
@@ -656,7 +675,7 @@
     ehCustoDeVida: ehCustoDeVida, ehEmpresa: ehEmpresa, ehSaida: ehSaida,
     somar: somar, custoDeVida: custoDeVida, incertezaDoMes: incertezaDoMes,
     percentualClassificado: percentualClassificado,
-    ym: ym, rotuloMes: rotuloMes, mesAtual: mesAtual,
+    ym: ym, rotuloMes: rotuloMes, dataBR: dataBR, mesAtual: mesAtual,
     mesesAnteriores: mesesAnteriores, mesesComDado: mesesComDado,
     mesesComAtual: mesesComAtual, porMes: porMes,
     TRAVAS: TRAVAS, despesaFamiliar: despesaFamiliar,
