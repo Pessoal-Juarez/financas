@@ -36,6 +36,17 @@
   .item-lote .d { font-size:.9375rem; word-break:break-word; }
   .item-lote .s { color:var(--muted); font-size:.8125rem; }
   .progresso { color:var(--muted); font-size:.875rem; margin-top:8px; }
+  /* Diálogo de escopo — mesmo padrão de lancamentos.html. */
+  dialog { border:0; border-radius:var(--raio); padding:18px; max-width:440px; width:92vw;
+           background:var(--card); color:var(--text); }
+  dialog::backdrop { background:rgba(0,0,0,.45); }
+  .escopo { padding:12px 4px; border-bottom:1px solid var(--border2); cursor:pointer;
+            display:flex; gap:10px; align-items:flex-start; }
+  .escopo:last-of-type { border-bottom:0; }
+  .escopo input { min-height:22px; width:22px; height:22px; margin-top:1px; flex:none;
+                  accent-color:var(--acento); }
+  .escopo .rot b { display:block; }
+  .escopo .rot span { color:var(--muted); font-size:.8125rem; }
 </style>
 </head>
 <body>
@@ -48,6 +59,8 @@
 <div class="envolucro" id="tela">
   <div class="cartao"><div class="esqueleto"><div class="esq-linha"><div class="esq"></div></div></div></div>
 </div>
+
+<dialog id="dlg"></dialog>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="assets/modelo.js"></script>
@@ -201,6 +214,21 @@ async function salvar(t, sugestao) {
     return;
   }
 
+  // Item que JÁ vinha com sugestão de regra (não é a primeira vez) e cuja
+  // CATEGORIA foi trocada: pergunta o escopo (este / seguintes / todos),
+  // igual à reclassificação em Lançamentos (PR #24). Item novo (sem
+  // sugestão) segue o fluxo direto de sempre — não há regra a "corrigir",
+  // é a primeira que se ensina.
+  const trocouCategoria = sugestao && sugestao.categoria_id !== catId;
+  if (trocouCategoria) { perguntarEscopo(t, sugestao, catId, cls); return; }
+
+  await gravar(t, sugestao, catId, cls);
+}
+
+// Gravação direta, sem pergunta de escopo. Usada para: item novo, e para
+// confirmação/ajuste de cls de um item com sugestão (categoria inalterada).
+async function gravar(t, sugestao, catId, cls) {
+  const box = $('erroSalvar');
   const btn = $('btnSalvar');
   const rotulo = btn.textContent;
   btn.disabled = true; btn.textContent = 'Salvando…';
@@ -234,6 +262,101 @@ async function salvar(t, sugestao) {
   if (alvo) { alvo.categoria_id = catId; alvo.cls = cls; }
   montarFila();
   UI.toast(mudou ? 'Salvo e aprendido' : 'Confirmado');
+  desenhar();
+}
+
+/* ------------------------------------------------------------------
+   Pergunta de escopo ao trocar a categoria de um item já sugerido
+   ------------------------------------------------------------------
+   Mesmo espírito do "editar evento recorrente" do calendário (PR #24, em
+   Lançamentos): aqui "recorrente" é a regra por descrição que a triagem
+   ensina. Só aparece quando havia sugestão e a CATEGORIA mudou. */
+function perguntarEscopo(t, sugestao, catId, cls) {
+  const podeRegra = M.podeVirarRegra(M.normalizar(t.descricao));
+  const dlg = $('dlg');
+  dlg.innerHTML =
+    '<p class="titulo" style="margin:0 0 4px">Alterar categoria</p>' +
+    '<p class="mudo" style="margin:0">' + UI.escapar(t.descricao) + '</p>' +
+    '<p class="mudo" style="font-size:.8125rem;margin:2px 0 10px">Vale só para este ' +
+      'lançamento ou também para os próximos com a mesma descrição?</p>' +
+    '<label class="escopo"><input type="radio" name="esc" value="este" checked>' +
+      '<span class="rot"><b>Este evento</b>' +
+        '<span>Muda só este lançamento. A regra continua como está.</span></span></label>' +
+    (podeRegra
+      ? '<label class="escopo"><input type="radio" name="esc" value="seguintes">' +
+          '<span class="rot"><b>Este e os eventos seguintes</b>' +
+            '<span>Muda este e corrige a regra para os próximos. Não mexe nos anteriores.</span></span></label>' +
+        '<label class="escopo"><input type="radio" name="esc" value="todos">' +
+          '<span class="rot"><b>Todos os eventos</b>' +
+            '<span>Muda este, os anteriores com a mesma descrição e os próximos.</span></span></label>'
+      : '<p class="honestidade" style="margin:8px 0 0">A descrição é curta demais para virar ' +
+        'uma regra segura, então só dá para mudar este lançamento.</p>') +
+    '<div class="acoes" style="display:flex;gap:8px;margin-top:16px">' +
+      '<button class="btn" id="okEsc" style="flex:1">OK</button>' +
+      '<button class="btn alt" id="cancelEsc" style="flex:1">Cancelar</button></div>' +
+    '<div id="progressoEsc" class="mudo" style="font-size:.8125rem;margin-top:8px"></div>' +
+    '<div id="erroEsc"></div>';
+  if (!dlg.open) dlg.showModal();
+  $('cancelEsc').onclick = () => dlg.close();
+  $('okEsc').onclick = () => {
+    const sel = (document.querySelector('input[name=esc]:checked') || {}).value || 'este';
+    aplicarEscopo(t, sugestao, catId, cls, sel);
+  };
+}
+
+async function aplicarEscopo(t, sugestao, catId, cls, escopo) {
+  const cNome = (catPorId(catId) || {}).nome || null;
+  const ok = $('okEsc'), cancel = $('cancelEsc');
+  ok.disabled = true; cancel.disabled = true; ok.textContent = 'Aplicando…';
+
+  // 1. Sempre grava o lançamento em questão.
+  const r0 = await DB.classificar(t.id, { categoria_id: catId, categoria: cNome, cls: cls });
+  if (r0.erro) {
+    ok.disabled = false; cancel.disabled = false; ok.textContent = 'OK';
+    $('erroEsc').innerHTML = '<div class="erro-inline">Não salvou: ' + UI.escapar(r0.erro) +
+      '<br>Nada foi perdido — o lançamento continua na fila.</div>';
+    return;
+  }
+  const alvo = TX.find(x => x.id === t.id);
+  if (alvo) { alvo.categoria_id = catId; alvo.categoria = cNome; alvo.cls = cls; }
+
+  // 2. "seguintes" e "todos" corrigem/ensinam a regra (vale para os
+  //    próximos ingeridos pela VPS/Pluggy).
+  let msg = 'Alterado só neste lançamento';
+  if (escopo === 'seguintes' || escopo === 'todos') {
+    const re = await DB.ensinarRegra(t.descricao, catId, cNome, cls);
+    if (re.ok) { REGRAS = await DB.regras(true); msg = 'Alterado e regra corrigida'; }
+    else if (re.motivo === 'padrao-curto') {
+      msg = 'Alterado. A descrição é curta demais para virar regra.';
+    }
+  }
+
+  // 3. "todos" reaplica aos que casam o padrão (anteriores inclusive), por
+  //    "contém", idêntico ao motor de regras. Empréstimo fica de fora.
+  if (escopo === 'todos') {
+    const padrao = M.normalizar(t.descricao);
+    const regraNova = [{ padrao: padrao, categoria_id: catId }];
+    const alvos = TX.filter(x => x.id !== t.id && x.categoria_id !== catId &&
+      x.cls !== 'Empréstimo' && M.regraQueCasa(x.descricao, regraNova));
+    if (alvos.length) {
+      const res = await DB.aplicarLote(
+        alvos.map(x => ({ id: x.id, mudancas: { categoria_id: catId, categoria: cNome } })),
+        (feitos, total) => { const p = $('progressoEsc'); if (p) p.textContent = feitos + ' de ' + total; }
+      );
+      alvos.forEach(x => {
+        if (res.falhas.some(fa => fa.id === x.id)) return;
+        const a2 = TX.find(y => y.id === x.id);
+        if (a2) { a2.categoria_id = catId; a2.categoria = cNome; }
+      });
+      msg = res.ok + ' lançamento' + (res.ok === 1 ? '' : 's') + ' atualizado' +
+        (res.ok === 1 ? '' : 's') + (res.falhas.length ? ', ' + res.falhas.length + ' falharam' : '') +
+        ' · regra corrigida';
+    }
+  }
+
+  $('dlg').close();
+  montarFila();
+  UI.toast(msg);
   desenhar();
 }
 
