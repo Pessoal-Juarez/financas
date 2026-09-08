@@ -109,11 +109,24 @@ async function carregarRegras() {
 // ------------------------------------------------------------------
 const ACENTOS = 'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ';
 const BASES = 'AAAAAEEEEIIIIOOOOOUUUUC';
+// Prefixos burocráticos que engolem a janela de 18 chars: "Pagamento de Pix
+// QR Code <loja>" e "Pagamento de boleto <credor>" viram todos a MESMA chave
+// (PAGAMENTODEPIXQRCO), casando lojas sem relação (armadilha nº7). Descartamos
+// o prefixo ANTES de cortar 18, para o padrão sair do nome real do
+// estabelecimento. ⚠️ TEM que ser IDÊNTICO ao assets/modelo.js do front — se
+// divergir, a regra ensinada no app não casa aqui no sync (quebra silenciosa).
+const PREFIXOS_BUROCRATICOS = ['PAGAMENTODEPIXQRCODE', 'PAGAMENTODEBOLETO'];
+function descartarPrefixo(letras) {
+  for (const p of PREFIXOS_BUROCRATICOS) {
+    if (letras.indexOf(p) === 0 && letras.length > p.length) return letras.slice(p.length);
+  }
+  return letras;
+}
 function normalizar(d) {
   const s = String(d || '').toUpperCase();
   let f = '';
   for (let i = 0; i < s.length; i++) { const j = ACENTOS.indexOf(s[i]); f += (j === -1) ? s[i] : BASES[j]; }
-  return f.replace(/[^A-Z]/g, '').slice(0, 18);
+  return descartarPrefixo(f.replace(/[^A-Z]/g, '')).slice(0, 18);
 }
 function regraQueCasa(desc, regras) {
   const d = normalizar(desc);

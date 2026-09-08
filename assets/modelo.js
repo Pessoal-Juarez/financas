@@ -170,6 +170,45 @@
   var ACENTOS = 'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ';
   var BASES = 'AAAAAEEEEIIIIOOOOOUUUUC';
 
+  /* ------------------------------------------------------------------
+     Prefixos burocráticos que engolem a janela de 18 caracteres
+     ------------------------------------------------------------------
+     Alguns lançamentos vêm com um prefixo administrativo LONGO antes do
+     nome do estabelecimento. Como o padrão é cortado em 18 caracteres, o
+     prefixo consome a janela inteira e TODOS viram a mesma chave —
+     'Pagamento de Pix QR Code <QUALQUER LOJA>' -> PAGAMENTODEPIXQRCO.
+     Isso é a armadilha nº7: uma regra genérica que casa lojas sem relação.
+
+     Medido no banco em 08/09/2026, só DOIS prefixos têm esse
+     comportamento (chave de 18 chars compartilhada por muitos
+     estabelecimentos distintos):
+       "Pagamento de Pix QR Code"  -> PAGAMENTODEPIXQRCODE (20 letras)
+       "Pagamento de boleto"       -> PAGAMENTODEBOLETO    (17 letras)
+     Redes como PAGUEMENOS/AMAZONBR também repetem a chave, mas são o MESMO
+     estabelecimento com grafia variável — regra legítima, NÃO entram aqui.
+
+     Descartamos o prefixo ANTES de cortar 18, então o padrão passa a sair
+     do nome real: 'Barbearia Do Torcedor' -> BARBEARIADOTORCED, 'TIM S A'
+     -> TIMSA. Se depois de descartar sobrar pouca coisa, `podeVirarRegra`
+     (mínimo 8 chars) já barra a criação de regra curta e perigosa.
+
+     ⚠️ ESTA LISTA E ESTA LÓGICA TÊM QUE SER IDÊNTICAS às do serviço Pluggy
+     (server/pluggy/server.mjs), que casa as regras no sync. Divergir aqui
+     faz a regra ensinada no app nunca casar no ingestão — quebra silenciosa. */
+  var PREFIXOS_BUROCRATICOS = ['PAGAMENTODEPIXQRCODE', 'PAGAMENTODEBOLETO'];
+
+  // Recebe a string só-letras (A-Z, maiúsculas) e remove um prefixo
+  // burocrático conhecido, se houver. Devolve o restante (o nome real).
+  function descartarPrefixo(letras) {
+    for (var i = 0; i < PREFIXOS_BUROCRATICOS.length; i++) {
+      var p = PREFIXOS_BUROCRATICOS[i];
+      if (letras.indexOf(p) === 0 && letras.length > p.length) {
+        return letras.slice(p.length);
+      }
+    }
+    return letras;
+  }
+
   function normalizar(descricao) {
     var s = String(descricao || '').toUpperCase();
     var fora = '';
@@ -177,12 +216,13 @@
       var j = ACENTOS.indexOf(s[i]);
       fora += (j === -1) ? s[i] : BASES[j];
     }
-    return fora.replace(/[^A-Z]/g, '').slice(0, 18);
+    return descartarPrefixo(fora.replace(/[^A-Z]/g, '')).slice(0, 18);
   }
 
   // A hipótese alternativa: o acento cai fora junto com a letra.
   function normalizarSemDobra(descricao) {
-    return String(descricao || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 18);
+    var letras = String(descricao || '').toUpperCase().replace(/[^A-Z]/g, '');
+    return descartarPrefixo(letras).slice(0, 18);
   }
 
   // Match por "contém", igual ao da VPS. Testa as duas normalizações
