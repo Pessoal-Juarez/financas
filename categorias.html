@@ -80,6 +80,16 @@ function desenhar() {
     return oa - ob;
   });
 
+  // Grupos que podem RECEBER uma subcategoria nova. A lista `grupos` acima
+  // sai só das subcategorias existentes (CATS) — então um grupo recém-criado
+  // e ainda vazio não entra, e a pessoa fica sem como dar a ele a primeira
+  // subcategoria (impasse). Aqui a união com os grupos ATIVOS da tabela
+  // `grupos` resolve: todo grupo vivo pode receber sub, tenha ele ou não.
+  const gruposParaNovaSub = grupos.slice();
+  GRUPOS.filter(g => g.ativa !== false && g.nome)
+        .sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
+        .forEach(g => { if (gruposParaNovaSub.indexOf(g.nome) === -1) gruposParaNovaSub.push(g.nome); });
+
   $('tela').innerHTML =
     '<div class="cartao">' +
       '<p class="mudo" style="margin:0 0 6px">' + CATS.filter(c => c.ativa).length +
@@ -126,7 +136,7 @@ function desenhar() {
     '<div class="cartao">' +
       '<p class="mudo" style="margin:0 0 8px">Nova subcategoria</p>' +
       '<div class="novo">' +
-        '<select id="novoGrupo">' + grupos.map(g =>
+        '<select id="novoGrupo">' + gruposParaNovaSub.map(g =>
           '<option>' + UI.escapar(g) + '</option>').join('') + '</select>' +
         '<input id="novoNome" placeholder="Nome" autocomplete="off">' +
       '</div>' +
