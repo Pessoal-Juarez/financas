@@ -146,7 +146,15 @@ function paraTransacao(tx, conta, regras) {
   const cartao = (conta.type || '').toUpperCase() === 'CREDIT';
   const cc = tx.creditCardMetadata || null;
   const amount = Number(tx.amount) || 0;
-  const tipo = cartao ? (amount < 0 ? 'saida' : 'entrada') : (tx.type === 'CREDIT' ? 'entrada' : 'saida');
+  // Sinal do CARTÃO no Pluggy (Itaú, confirmado no dado real em 09/2026):
+  //   amount POSITIVO  = COMPRA  -> saida  (gasto)
+  //   amount NEGATIVO  = pagamento da fatura / estorno -> entrada
+  // É o INVERSO do que esta função assumia originalmente. A suposição
+  // antiga (amount<0 = saida) marcava todas as compras como 'entrada' e
+  // 785 lançamentos apareceram como receita — corrigido aqui e nos dados
+  // já gravados (sql/2026-09-09_corrige-sinal-cartao.sql).
+  // A CONTA continua pelo tx.type (CREDIT=entrada), que veio correto.
+  const tipo = cartao ? (amount < 0 ? 'entrada' : 'saida') : (tx.type === 'CREDIT' ? 'entrada' : 'saida');
   const linha = {
     ext_id: tx.id,
     data: gmt3(tx.date),
