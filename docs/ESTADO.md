@@ -1,6 +1,6 @@
 # Onde paramos
 
-**Última atualização:** 08/09/2026.
+**Última atualização:** 09/09/2026.
 **Leia este arquivo primeiro** ao retomar o projeto.
 
 ---
@@ -20,7 +20,11 @@ regra genérica `PAGAMENTODEPIXQRCO` (armadilha nº7) e o reparo dos 137 lançam
 reclassificou errado. À noite foi atacada a **raiz** dessa armadilha: front e serviço Pluggy
 passam a descartar os prefixos burocráticos "Pagamento de Pix QR Code" e "Pagamento de
 boleto" antes de cortar o padrão em 18 caracteres, então cada estabelecimento volta a ter
-regra própria (PR #35 — exige redeploy do Pluggy no EasyPanel).
+regra própria (PR #35 — exige redeploy do Pluggy no EasyPanel). Em 09/09/2026 foi corrigido
+o **sinal do cartão no Pluggy** (compra vinha como `entrada`/receita): código + reparo dos
+dados (PRs #36/#37, só cartão-Pluggy), o que trouxe o custo de vida de agosto de ~R$ 5.371
+para ~R$ 10.768 — e uma conferência com a fatura confirmou que o restante (parcelas por
+competência, empresa fora do custo de vida, cartões adicionais da Raiane) está correto.
 
 ## Onde vive o projeto (GitHub)
 
@@ -651,3 +655,73 @@ há prefixo burocrático longo. A defesa não é só "detectar regra genérica d
 **descartar o prefixo antes de gerar o padrão**, e fazer isso idêntico em todos os pontos
 que normalizam. Se um dia aparecer um terceiro prefixo assim, adicionar em
 `PREFIXOS_BUROCRATICOS` nos dois arquivos (e redeployar o Pluggy).
+
+---
+
+## Diário — 09/09/2026: sinal do cartão invertido (Pluggy) + conferência de fatura
+
+O Juarez notou uma despesa (NbsBurger, cartão) aparecendo em VERDE como se fosse
+receita. Puxando o fio, descobrimos um bug de dados grande — e, no fim, confirmamos que
+o resto estava certo. Um dia inteiro de diagnóstico guiado por dados, sem chutes.
+
+**O bug: sinal do cartão do Pluggy estava invertido.** A ingestão (`server/pluggy/server.mjs`)
+assumia, para cartão, `amount < 0 = saida`. No dado real do Itaú é o CONTRÁRIO:
+- **compra** (gasto) vem com `amount` POSITIVO → o código marcava `entrada` ❌
+- **pagamento de fatura / estorno** vem com `amount` NEGATIVO → marcava `saida` ❌
+
+Resultado: **1627 compras do cartão** apareciam como receita, e o custo de vida do mês
+ficava subestimado (agosto dava ~R$ 5.371 em vez dos ~R$ 11.400 reais). A cor verde
+(PR #32) não era o bug — só EXPÔS um dado que já estava errado desde que o Pluggy assumiu
+o Itaú (07/09). O NbsBurger só chamou atenção por estar sem categoria (sem cor competindo).
+
+**Cuidado que valeu:** a primeira leitura foi "está tudo invertido". ERRADO — havia 769
+saídas de cartão corretas (as antigas do Cumbuca + os pagamentos/estornos). O Juarez
+insistiu na cautela e os dados confirmaram: o problema é SÓ do cartão-Pluggy, e a inversão
+conserta compras E pagamentos ao mesmo tempo (é uma regra de sinal trocada, não linhas
+soltas). Lição: medir antes de afirmar; um "parece tudo X" quase custou uma correção em massa errada.
+
+**A conta estava CERTA.** Débito em conta (Pix enviado, transferência, cartão de débito,
+boleto, débito automático) já vinha como `saida`; receitas (Pix recebido, Resgate CDB) como
+`entrada`. A conta usa `tx.type` (CREDIT/DEBIT), que o Pluggy manda correto. Só o cartão
+usa o sinal do `amount`. Por isso a correção mexeu SÓ no cartão.
+
+**Correção (PR #36 + #37):**
+- Código: inverte o ramo do cartão — `amount<0 => entrada; senão saida`. Conta intacta.
+- Dados: troca `entrada`↔`saida` num único UPDATE com CASE, SÓ em
+  `src='Cartão' AND ext_id IS NOT NULL` (cartão-Pluggy). Preserva Conta, BTG e o
+  cartão-Cumbuca antigo (ext_id nulo, 646 saídas já certas).
+- ⚠️ **Armadilha do trigger:** `trg_trava_colunas_transacao` bloqueia alterar `tipo` para
+  quem não é gestor — e **no SQL Editor `is_admin()` é falso** (sem usuário autenticado),
+  então ele barra mesmo você sendo dono do banco (erro 42501). Solução para correção
+  administrativa: `begin; alter table ... disable trigger ...; update ...; enable trigger; commit;`
+  tudo numa transação (o SQL Editor é superusuário, pode). O sync do Pluggy NÃO esbarra
+  nisso porque usa a service_role (ignora RLS/trigger).
+- SQL em `sql/2026-09-09_corrige-sinal-cartao.sql` (backup + verificação inclusos).
+- Requer **redeploy do Pluggy no EasyPanel** (feito) — senão o próximo sync regravaria o
+  sinal errado. Um `docker service update --force` NÃO basta (reinicia com imagem velha);
+  é o "Deploy" do EasyPanel que rebuilda a `main`.
+
+**Resultado:** custo de vida de agosto do Itaú passou de ~R$ 5.371 para **R$ 10.768,57**.
+
+**Conferência com a fatura de agosto (Itaú, venc. 07/09) — e por que o app NÃO bate com o
+total da fatura, corretamente.** A fatura soma R$ 6.400,18 em 5 cartões (2 do Juarez, 3 da
+Raiane). O custo de vida da família no app dá menos, por três motivos LEGÍTIMOS:
+1. **Parcelas de outras competências.** O app põe cada parcela no mês da sua fatura (a
+   coluna `data`), não no mês da compra. Confirmado: `FACES TREINAMENTO 02/12` tem
+   `data=2026-08-01` e `data_compra=2026-07-09` — competência CERTA. Não era bug (a
+   suspeita inicial era essa). A fatura mistura parcelas de compras antigas; o app não.
+2. **Empresa fora do custo de vida.** Faces Treinamento (Dra. Raiane), Casa Portuguesa/C
+   Limão (OQV) somam na fatura mas saem do custo de vida da família — correto.
+3. **Estornos** tratados à parte (viram `entrada` após a inversão).
+
+**Cobertura confirmada:** os cartões adicionais da Raiane (finais 3549/9203/1510) ESTÃO
+sendo capturados — o Pluggy junta todos os plásticos num único `src='Cartão'`. Compras da
+fatura sob os cartões dela (SUN BIJOUX, BL JEREISSATE, GRAND PARRILHA, SHEINCOM, PATYBATIZA,
+AtelieCriaFest) todas presentes no banco. Nada faltando.
+
+**Conclusão:** não há bug restante. O número do app (custo de vida = o que a FAMÍLIA
+consumiu, por competência, sem empresa e sem dupla contagem de parcela) é diferente do
+total da fatura por natureza — e é o número mais útil para o propósito do projeto.
+
+**Pendência do Juarez:** reclassificar `SHOPEE *AUMOX` de Rai Móveis para pessoal (ajuste
+pontual na tela Lançamentos; decidir escopo por causa das parcelas AUMOX que casam a regra).
