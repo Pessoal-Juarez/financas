@@ -155,6 +155,27 @@ with a as (
 
   union all select 21, 'Nenhuma linha de teste sobrou no banco',
          (select count(*) from transacoes where ext_id like 'TESTE-%')::text, '0'
+
+  -- 11. Grupos como entidade (migração 2026-09-07_grupos.sql)
+  union all select 22, 'RLS ligado em grupos',
+         (select relrowsecurity from pg_class where oid='public.grupos'::regclass)::text, 'true'
+
+  union all select 23, 'Grupos ativos (12 originais)',
+         (select count(*) from grupos where ativa)::text, '>= 12'
+
+  -- Todo grupo que aparece em `categorias` (nível 1 real) tem linha ATIVA
+  -- em `grupos`. Se faltar, a Análise/Início perdem cor e ordem do grupo.
+  union all select 24, 'Grupos de categorias sem linha ativa em grupos',
+         (select count(*) from (
+            select distinct grupo from categorias
+             where grupo is not null
+             and grupo not in (select nome from grupos where ativa)
+          ) x)::text, '0'
+
+  union all select 25, 'Funções de grupo criadas (criar/renomear/arquivar)',
+         (select count(*) from pg_proc
+           where pronamespace='public'::regnamespace
+             and proname in ('criar_grupo','renomear_grupo','arquivar_grupo'))::text, '3'
 )
 select ord as "#",
        ascerto.assercao,

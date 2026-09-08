@@ -147,6 +147,21 @@
     }, forcar);
   }
 
+  // Grupos (metadata: cor, ordem, tier, eixo). Desde 07/09/2026 são
+  // editáveis (tabela `grupos`). Ao ler, hidrata as constantes de M para
+  // que Análise/Início/orçamento reflitam grupos criados/renomeados. Se a
+  // tabela não existir ainda (migração não aplicada), M mantém o fallback.
+  function grupos(forcar) {
+    return comCache('grupos', function () {
+      return lerTudo('grupos', [['ordem', true]]);
+    }, forcar).then(function (linhas) {
+      try { global.M.hidratarGrupos(linhas); } catch (e) {}
+      return linhas;
+    }).catch(function () {
+      return [];   // sem a tabela, o app segue com os grupos do fallback
+    });
+  }
+
   function regras(forcar) {
     return comCache('regras', function () { return lerTudo('regras'); }, forcar);
   }
@@ -159,9 +174,10 @@
 
   async function tudo(forcar) {
     var r = await Promise.all([
-      transacoes(forcar), categorias(forcar), regras(forcar), patrimonio(forcar)
+      transacoes(forcar), categorias(forcar), regras(forcar), patrimonio(forcar),
+      grupos(forcar)
     ]);
-    return { tx: r[0], categorias: r[1], regras: r[2], patrimonio: r[3] };
+    return { tx: r[0], categorias: r[1], regras: r[2], patrimonio: r[3], grupos: r[4] };
   }
 
   /* ------------------------------------------------------------------
@@ -425,6 +441,36 @@
     return { ok: true, categoria: r.data };
   }
 
+  /* ------------------------------------------------------------------
+     Grupos (a "categoria" de nível 1) — criar, renomear, arquivar
+     ------------------------------------------------------------------
+     O nome do grupo é chave de TEXTO em categorias.grupo e em metas. Por
+     isso renomear e arquivar são funções ATÔMICAS no banco (RPC), como
+     arquivar_categoria — mudar num só lugar deixaria os outros apontando
+     para nome morto. Só o gestor: o RLS e as funções barram a colab. */
+  async function criarGrupo(nome, cor, tier, eixo) {
+    var r = await sb.rpc('criar_grupo', {
+      p_nome: nome, p_cor: cor || null, p_tier: tier || null, p_eixo: eixo || 'despesa' });
+    if (r.error) return { erro: r.error.message };
+    invalidar('grupos');
+    return { ok: true, grupo: r.data };
+  }
+
+  async function renomearGrupo(id, novoNome) {
+    var r = await sb.rpc('renomear_grupo', { p_id: id, p_novo_nome: novoNome });
+    if (r.error) return { erro: r.error.message };
+    invalidar('grupos'); invalidar('cat'); invalidar('tx'); invalidar('metas');
+    return { ok: true, resultado: r.data };
+  }
+
+  async function arquivarGrupo(id, destinoNome) {
+    var r = await sb.rpc('arquivar_grupo', { p_id: id, p_destino_nome: destinoNome });
+    if (r.error) return { erro: r.error.message };
+    invalidar('grupos'); invalidar('cat'); invalidar('tx');
+    invalidar('regras'); invalidar('metas');
+    return { ok: true, resultado: r.data };
+  }
+
   global.DB = {
     sb: sb, PAGINA: PAGINA, TTL_MS: TTL_MS,
     sessaoAtual: sessaoAtual, entrar: entrar, sair: sair,
@@ -433,9 +479,10 @@
     get papel() { return ROLE; },
     get nome() { return NOME; },
     transacoes: transacoes, categorias: categorias, regras: regras,
-    patrimonio: patrimonio, tudo: tudo, lerTudo: lerTudo,
+    grupos: grupos, patrimonio: patrimonio, tudo: tudo, lerTudo: lerTudo,
     classificar: classificar, ensinarRegra: ensinarRegra,
     aplicarLote: aplicarLote, criarCategoria: criarCategoria,
+    criarGrupo: criarGrupo, renomearGrupo: renomearGrupo, arquivarGrupo: arquivarGrupo,
     metas: metas, salvarMeta: salvarMeta, apagarMeta: apagarMeta,
     metasEconomia: metasEconomia, criarMetaEconomia: criarMetaEconomia,
     atualizarMetaEconomia: atualizarMetaEconomia,

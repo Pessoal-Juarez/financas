@@ -57,12 +57,21 @@
 
   /* ------------------------------------------------------------------
      Grupos de categoria
-     ------------------------------------------------------------------ */
+     ------------------------------------------------------------------
+     Desde 07/09/2026 os grupos são uma ENTIDADE editável (tabela `grupos`):
+     dá para criar, renomear e arquivar grupo na tela Categorias. Estas
+     constantes deixaram de ser a fonte da verdade e passaram a ser o
+     FALLBACK: `hidratarGrupos()` as reconstrói a partir da tabela quando
+     os dados chegam. Ficam aqui os 12 grupos originais, com cor/ordem/tier,
+     para o app funcionar mesmo offline ou se a leitura de `grupos` falhar.
 
-  // Os 10 grupos de despesa, na ordem de exibição. `Receitas` e
-  // `Movimentação` existem no banco para que toda categoria tenha grupo,
-  // mas NÃO aparecem em Análise nem no orçamento — esses são sobre para
-  // onde o dinheiro vai.
+     GRUPOS_DESPESA são os grupos do eixo 'despesa', na ordem de exibição.
+     `Receitas` (eixo 'receita') e `Movimentação` (eixo 'movimentacao')
+     existem para que toda categoria tenha grupo, mas NÃO aparecem em
+     Análise nem no orçamento — esses são sobre para onde o dinheiro vai.
+
+     As telas leem M.GRUPOS_DESPESA / M.COR_GRUPO / M.TIER; hidratar MUTA
+     estes objetos NO LUGAR para preservar a mesma referência exportada. */
   var GRUPOS_DESPESA = [
     'Alimentação', 'Moradia', 'Saúde', 'Transporte', 'Cuidado pessoal',
     'Educação', 'Lazer', 'Compras', 'Serviços & obrigações', 'Empresas'
@@ -86,6 +95,45 @@
     'Cuidado pessoal': 'variável',
     'Lazer': 'adicional', 'Compras': 'adicional', 'Empresas': 'adicional'
   };
+
+  // Reconstrói GRUPOS_DESPESA/COR_GRUPO/TIER a partir das linhas da tabela
+  // `grupos`. Muta os objetos no lugar (mesma referência que as telas já
+  // leem). Só considera grupos ATIVOS. Sem linhas (offline/erro), mantém o
+  // fallback acima intacto — nunca deixa o app sem grupos.
+  function hidratarGrupos(linhas) {
+    if (!linhas || !linhas.length) return;
+    var ativos = linhas.filter(function (g) { return g && g.ativa !== false && g.nome; })
+                       .sort(function (a, b) { return (a.ordem || 0) - (b.ordem || 0); });
+    if (!ativos.length) return;
+
+    // Cor e tier de TODOS os grupos ativos (inclui Receitas/Movimentação:
+    // categoria.html e outras telas pedem a cor de qualquer grupo).
+    var novaCor = {}, novoTier = {};
+    ativos.forEach(function (g) {
+      novaCor[g.nome] = g.cor || '#9aa3b2';
+      if (g.tier) novoTier[g.nome] = g.tier;
+    });
+
+    // Só o eixo 'despesa' entra em GRUPOS_DESPESA, na ordem da tabela.
+    var despesa = ativos.filter(function (g) { return (g.eixo || 'despesa') === 'despesa'; })
+                        .map(function (g) { return g.nome; });
+
+    // Descobre os nomes especiais pelo eixo, com fallback ao valor atual.
+    var rec = ativos.filter(function (g) { return g.eixo === 'receita'; })[0];
+    var mov = ativos.filter(function (g) { return g.eixo === 'movimentacao'; })[0];
+    if (rec) GRUPO_RECEITAS = rec.nome;
+    if (mov) GRUPO_MOVIMENTACAO = mov.nome;
+    exportar.GRUPO_RECEITAS = GRUPO_RECEITAS;
+    exportar.GRUPO_MOVIMENTACAO = GRUPO_MOVIMENTACAO;
+
+    // Muta no lugar para preservar a referência exportada.
+    GRUPOS_DESPESA.length = 0;
+    Array.prototype.push.apply(GRUPOS_DESPESA, despesa);
+    Object.keys(COR_GRUPO).forEach(function (k) { delete COR_GRUPO[k]; });
+    Object.keys(novaCor).forEach(function (k) { COR_GRUPO[k] = novaCor[k]; });
+    Object.keys(TIER).forEach(function (k) { delete TIER[k]; });
+    Object.keys(novoTier).forEach(function (k) { TIER[k] = novoTier[k]; });
+  }
 
   /* ------------------------------------------------------------------
      Normalização de descrição — TEM que casar com a da VPS
@@ -590,13 +638,13 @@
     return lista;
   }
 
-  global.M = {
+  var exportar = {
     CLS: CLS, ROTULO_CLS: ROTULO_CLS, COR_CLS: COR_CLS,
     CUSTO_DE_VIDA: CUSTO_DE_VIDA, EMPRESAS: EMPRESAS,
     CLS_INDEFINIDO: CLS_INDEFINIDO, CLS_NAO_CONTA: CLS_NAO_CONTA,
     GRUPOS_DESPESA: GRUPOS_DESPESA,
     GRUPO_RECEITAS: GRUPO_RECEITAS, GRUPO_MOVIMENTACAO: GRUPO_MOVIMENTACAO,
-    COR_GRUPO: COR_GRUPO, TIER: TIER,
+    COR_GRUPO: COR_GRUPO, TIER: TIER, hidratarGrupos: hidratarGrupos,
     rotulo: function (cls) { return ROTULO_CLS[cls] || cls || '—'; },
     cor: function (cls) { return COR_CLS[cls] || '#9aa3b2'; },
     normalizar: normalizar, normalizarSemDobra: normalizarSemDobra,
@@ -617,4 +665,6 @@
     projecaoParcelas: projecaoParcelas, emprestimos: emprestimos,
     saldoDasEmpresas: saldoDasEmpresas
   };
+
+  global.M = exportar;
 })(window);

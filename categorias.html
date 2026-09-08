@@ -13,8 +13,11 @@
 <style>
   .voltar { text-decoration:none; color:var(--muted); font-size:.9375rem;
             min-height:var(--alvo); display:inline-flex; align-items:center; }
-  .grupo-cab { display:flex; align-items:baseline; gap:8px; margin:14px 0 2px; }
+  .grupo-cab { display:flex; align-items:center; gap:8px; margin:14px 0 2px; }
   .grupo-cab h2 { font-size:1rem; margin:0; }
+  .grupo-acoes { display:flex; gap:2px; margin-left:auto; }
+  .grupo-acoes button { min-height:var(--alvo); min-width:var(--alvo); background:none;
+                        border:0; color:var(--muted); font-size:1rem; cursor:pointer; }
   .sub { display:flex; gap:10px; align-items:center; padding:9px 0;
          border-bottom:1px solid var(--border2); }
   .sub:last-child { border-bottom:0; }
@@ -50,19 +53,32 @@
 <script>
 'use strict';
 const $ = UI.$;
-let TX = [], CATS = [], uso = {};
+let TX = [], CATS = [], GRUPOS = [], uso = {};
 
 function contarUso() {
   uso = {};
   TX.forEach(t => { if (t.categoria_id) uso[t.categoria_id] = (uso[t.categoria_id] || 0) + 1; });
 }
 
+// A linha da tabela `grupos` de um grupo pela ordem/nome. Pode faltar se a
+// migração de grupos ainda não foi aplicada — nesse caso o grupo existe só
+// como texto em `categorias` e as ações de grupo ficam indisponíveis.
+function grupoRow(nome) { return GRUPOS.find(g => g.nome === nome) || null; }
+
 function desenhar() {
   const gestor = DB.ehGestor();
   UI.montarNav('mais', TX.filter(M.precisaTriagem).length);
 
+  // Ordena os grupos pela tabela `grupos` (ordem/eixo); grupos que só
+  // existam como texto em categorias entram no fim, preservando o antigo
+  // "ordem de aparição".
   const grupos = [];
   CATS.forEach(c => { if (grupos.indexOf(c.grupo) === -1) grupos.push(c.grupo); });
+  grupos.sort((a, b) => {
+    const ra = grupoRow(a), rb = grupoRow(b);
+    const oa = ra ? ra.ordem : 9000, ob = rb ? rb.ordem : 9000;
+    return oa - ob;
+  });
 
   $('tela').innerHTML =
     '<div class="cartao">' +
@@ -71,16 +87,28 @@ function desenhar() {
       (gestor
         ? '<p class="mudo" style="margin:0;font-size:.8125rem">Arquivar move os lançamentos ' +
           'para outra subcategoria e some da lista — numa operação só, para não ' +
-          'deixar lançamento apontando para categoria morta.</p>'
+          'deixar lançamento apontando para categoria morta. Você também pode criar, ' +
+          'renomear e arquivar um <b>grupo</b> (o nível de cima).</p>'
         : '<p class="mudo" style="margin:0;font-size:.8125rem">Você pode <b>criar</b> ' +
-          'subcategoria. Renomear e arquivar são do gestor.</p>') +
+          'subcategoria. Renomear e arquivar, e mexer em grupos, são do gestor.</p>') +
     '</div>' +
 
     '<div class="cartao">' +
-      grupos.map(g =>
-        '<div class="grupo-cab"><h2>' + UI.escapar(g) + '</h2>' +
+      grupos.map(g => {
+        const gr = grupoRow(g);
+        const podeMexerGrupo = gestor && gr;
+        return '<div class="grupo-cab"><h2>' + UI.escapar(g) + '</h2>' +
           '<span class="mudo" style="font-size:.8125rem">' +
-            CATS.filter(c => c.grupo === g && c.ativa).length + '</span></div>' +
+            CATS.filter(c => c.grupo === g && c.ativa).length + '</span>' +
+          (podeMexerGrupo
+            ? '<span class="grupo-acoes">' +
+                '<button data-gren="' + gr.id + '" title="Renomear grupo" ' +
+                  'aria-label="Renomear grupo ' + UI.escapar(g) + '">✎</button>' +
+                '<button data-garq="' + gr.id + '" title="Arquivar grupo" ' +
+                  'aria-label="Arquivar grupo ' + UI.escapar(g) + '">🗄</button>' +
+              '</span>'
+            : '') +
+          '</div>' +
         CATS.filter(c => c.grupo === g).map(c =>
           '<div class="sub' + (c.ativa ? '' : ' arquivada') + '">' +
             '<span class="nome">' + UI.escapar(c.nome) + (c.ativa ? '' : ' (arquivada)') +
@@ -91,7 +119,8 @@ function desenhar() {
               ? '<button data-ren="' + c.id + '" title="Renomear" aria-label="Renomear ' + UI.escapar(c.nome) + '">✎</button>' +
                 '<button data-arq="' + c.id + '" title="Arquivar" aria-label="Arquivar ' + UI.escapar(c.nome) + '">🗄</button>'
               : '') +
-          '</div>').join('')).join('') +
+          '</div>').join('');
+      }).join('') +
     '</div>' +
 
     '<div class="cartao">' +
@@ -102,7 +131,36 @@ function desenhar() {
         '<input id="novoNome" placeholder="Nome" autocomplete="off">' +
       '</div>' +
       '<button class="btn" id="btnCriar" style="margin-top:8px">Criar</button>' +
-    '</div>';
+    '</div>' +
+
+    // Novo grupo — só o gestor. Grupo é o nível de cima (Alimentação,
+    // Transporte…). Cor e tier dão a ele lugar na Análise e no orçamento.
+    (gestor
+      ? '<div class="cartao">' +
+          '<p class="mudo" style="margin:0 0 8px">Novo grupo</p>' +
+          '<div class="novo">' +
+            '<input id="novoGrupoNome" placeholder="Nome do grupo" autocomplete="off">' +
+            '<input id="novoGrupoCor" type="color" value="#2f6df0" ' +
+              'aria-label="Cor do grupo" style="flex:0 0 44px;min-height:var(--alvo);padding:2px">' +
+          '</div>' +
+          '<div class="novo" style="margin-top:8px">' +
+            '<select id="novoGrupoEixo" aria-label="Onde o grupo entra">' +
+              '<option value="despesa">Despesa (entra na Análise e no orçamento)</option>' +
+              '<option value="receita">Receita (fora da Análise)</option>' +
+              '<option value="movimentacao">Movimentação (fora da Análise)</option>' +
+            '</select>' +
+          '</div>' +
+          '<div class="novo" id="linhaTier" style="margin-top:8px">' +
+            '<select id="novoGrupoTier" aria-label="Tipo de gasto">' +
+              '<option value="">Sem classificação de gasto</option>' +
+              '<option value="fixo">Fixo — chega todo mês</option>' +
+              '<option value="variável">Variável — responde a decisão</option>' +
+              '<option value="adicional">Adicional — o primeiro a cortar</option>' +
+            '</select>' +
+          '</div>' +
+          '<button class="btn" id="btnCriarGrupo" style="margin-top:8px">Criar grupo</button>' +
+        '</div>'
+      : '');
 
   $('btnCriar').onclick = async () => {
     const nome = $('novoNome').value.trim();
@@ -127,6 +185,141 @@ function desenhar() {
   document.querySelectorAll('[data-arq]').forEach(b => {
     b.onclick = () => arquivar(Number(b.dataset.arq));
   });
+  document.querySelectorAll('[data-gren]').forEach(b => {
+    b.onclick = () => renomearGrupo(Number(b.dataset.gren));
+  });
+  document.querySelectorAll('[data-garq]').forEach(b => {
+    b.onclick = () => arquivarGrupo(Number(b.dataset.garq));
+  });
+
+  const bcg = $('btnCriarGrupo');
+  if (bcg) bcg.onclick = criarGrupo;
+  // O tier só faz sentido para grupo de despesa; some para receita/movimentação.
+  const selEixo = $('novoGrupoEixo');
+  if (selEixo) selEixo.onchange = () => {
+    const linha = $('linhaTier');
+    if (linha) linha.style.display = selEixo.value === 'despesa' ? '' : 'none';
+  };
+}
+
+async function criarGrupo() {
+  const nome = $('novoGrupoNome').value.trim();
+  const cor = $('novoGrupoCor').value;
+  const eixo = $('novoGrupoEixo').value;
+  const tier = eixo === 'despesa' ? $('novoGrupoTier').value : '';
+  if (!nome) { UI.toast('Dê um nome ao grupo'); return; }
+  if (GRUPOS.some(g => g.nome.toLowerCase() === nome.toLowerCase())) {
+    UI.toast('Já existe um grupo com esse nome'); return;
+  }
+  const b = $('btnCriarGrupo');
+  b.disabled = true; b.textContent = 'Criando…';
+  const r = await DB.criarGrupo(nome, cor, tier, eixo);
+  if (r.erro) {
+    b.disabled = false; b.textContent = 'Criar grupo';
+    UI.toast('Não criou: ' + r.erro, 'erro'); return;
+  }
+  const d = await DB.tudo(true);
+  TX = d.tx; CATS = d.categorias; GRUPOS = d.grupos || []; contarUso();
+  UI.toast('Grupo criado');
+  desenhar();
+}
+
+/* Renomear grupo é atômico no banco: muda o nome em `grupos`, em
+   `categorias.grupo` de todas as subcategorias e em `metas`. Uma chamada só
+   (RPC renomear_grupo), pelo mesmo motivo do arquivar de subcategoria. */
+function renomearGrupo(id) {
+  const g = GRUPOS.find(x => x.id === id);
+  if (!g) return;
+  const nSubs = CATS.filter(c => c.grupo === g.nome && c.ativa).length;
+  const dlg = $('dlg');
+  dlg.innerHTML =
+    '<p class="titulo" style="margin:0 0 8px">Renomear grupo</p>' +
+    '<p class="mudo" style="margin:0 0 10px">O nome novo vale para o grupo e para as ' +
+      nSubs + ' subcategoria' + (nSubs === 1 ? '' : 's') + ' dele, e para o orçamento — ' +
+      'tudo numa operação só. As regras aprendidas não se perdem.</p>' +
+    '<input id="novoTxt" value="' + UI.escapar(g.nome) + '" style="width:100%">' +
+    '<div class="acoes" style="display:flex;gap:8px;margin-top:14px">' +
+      '<button class="btn" id="ok" style="flex:1">Salvar</button>' +
+      '<button class="btn alt" id="cancel" style="flex:1">Cancelar</button></div>' +
+    '<div id="erroDlg"></div>';
+  dlg.showModal();
+  $('cancel').onclick = () => dlg.close();
+  $('ok').onclick = async () => {
+    const nome = $('novoTxt').value.trim();
+    if (!nome) return;
+    $('ok').disabled = true;
+    const r = await DB.renomearGrupo(id, nome);
+    if (r.erro) {
+      $('erroDlg').innerHTML = '<p class="honestidade" style="color:var(--perigo)">' +
+        UI.escapar(r.erro) + '<br>Nada foi alterado — a operação é atômica.</p>';
+      $('ok').disabled = false;
+      return;
+    }
+    dlg.close();
+    const d = await DB.tudo(true);
+    TX = d.tx; CATS = d.categorias; GRUPOS = d.grupos || []; contarUso();
+    UI.toast('Grupo renomeado');
+    desenhar();
+  };
+}
+
+/* Arquivar grupo move todas as subcategorias dele para outro grupo (fundindo
+   as de mesmo nome) e some da lista. Atômico no banco (arquivar_grupo). */
+function arquivarGrupo(id) {
+  const g = GRUPOS.find(x => x.id === id);
+  if (!g) return;
+  const nSubs = CATS.filter(c => c.grupo === g.nome && c.ativa).length;
+  const destinos = GRUPOS.filter(x => x.ativa && x.id !== id);
+  const dlg = $('dlg');
+  if (!destinos.length) {
+    dlg.innerHTML =
+      '<p class="titulo" style="margin:0 0 8px">Arquivar grupo</p>' +
+      '<p class="mudo">Não há outro grupo ativo para receber as subcategorias. ' +
+        'Crie um grupo de destino antes.</p>' +
+      '<div class="acoes" style="margin-top:14px"><button class="btn alt" id="cancel" ' +
+        'style="width:100%">Fechar</button></div>';
+    dlg.showModal();
+    $('cancel').onclick = () => dlg.close();
+    return;
+  }
+  dlg.innerHTML =
+    '<p class="titulo" style="margin:0 0 8px">Arquivar grupo “' + UI.escapar(g.nome) + '”</p>' +
+    '<p class="mudo" style="margin:0 0 10px">' +
+      (nSubs
+        ? 'As <b>' + nSubs + '</b> subcategoria' + (nSubs === 1 ? '' : 's') +
+          ' deste grupo passam para o grupo escolhido, com seus lançamentos. ' +
+          'Subcategorias de mesmo nome se fundem.'
+        : 'Este grupo não tem subcategoria ativa. Escolha mesmo assim um destino, ' +
+          'para o caso de haver histórico.') +
+    '</p>' +
+    '<select id="destino" style="width:100%">' +
+      destinos.map(d => '<option value="' + UI.escapar(d.nome) + '">' +
+        UI.escapar(d.nome) + '</option>').join('') + '</select>' +
+    '<p class="mudo" style="font-size:.8125rem;margin:10px 0 0">O grupo some da lista mas ' +
+      'não é apagado — o histórico tem valor. O orçamento dele é removido.</p>' +
+    '<div class="acoes" style="display:flex;gap:8px;margin-top:14px">' +
+      '<button class="btn perigo" id="ok" style="flex:1">Mover e arquivar</button>' +
+      '<button class="btn alt" id="cancel" style="flex:1">Cancelar</button></div>' +
+    '<div id="erroDlg"></div>';
+  dlg.showModal();
+  $('cancel').onclick = () => dlg.close();
+  $('ok').onclick = async () => {
+    $('ok').disabled = true; $('ok').textContent = 'Movendo…';
+    const r = await DB.arquivarGrupo(id, $('destino').value);
+    if (r.erro) {
+      $('erroDlg').innerHTML = '<p class="honestidade" style="color:var(--perigo)">' +
+        UI.escapar(r.erro) + '<br>Nada foi alterado — a operação é atômica.</p>';
+      $('ok').disabled = false; $('ok').textContent = 'Tentar de novo';
+      return;
+    }
+    dlg.close();
+    const d = await DB.tudo(true);
+    TX = d.tx; CATS = d.categorias; GRUPOS = d.grupos || []; contarUso();
+    const res = r.resultado || {};
+    UI.toast('Grupo arquivado · ' + (res.movidas || 0) + ' movidas' +
+      (res.fundidas ? ', ' + res.fundidas + ' fundidas' : ''));
+    desenhar();
+  };
 }
 
 function renomear(id) {
@@ -208,7 +401,7 @@ function arquivar(id) {
 async function carregar(forcar) {
   try {
     const d = await DB.tudo(forcar);
-    TX = d.tx; CATS = d.categorias;
+    TX = d.tx; CATS = d.categorias; GRUPOS = d.grupos || [];
     contarUso();
     desenhar();
   } catch (e) {
