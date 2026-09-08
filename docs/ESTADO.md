@@ -1,6 +1,6 @@
 # Onde paramos
 
-**Última atualização:** 07/09/2026.
+**Última atualização:** 08/09/2026.
 **Leia este arquivo primeiro** ao retomar o projeto.
 
 ---
@@ -11,7 +11,9 @@ App no ar desde 07/08/2026. Em set/2026 foram adicionadas quatro funcionalidades
 (metas de economia, alerta de orçamento, gasto por dia e detalhamento de grupo) e o
 **Itaú passou a ser sincronizado pelo Pluggy** (serviço próprio no EasyPanel), com
 atualização diária automática de conta e cartão — o sync antigo do Itaú via Cumbuca
-foi desligado. BTG/Nubank/InfinitePay ainda entram pelo fluxo antigo.
+foi desligado. BTG/Nubank/InfinitePay ainda entram pelo fluxo antigo. Em 08/09/2026
+saíram mais três melhorias (abrir no mês atual, **grupo** editável como entidade, e
+reclassificar lançamento com pergunta de escopo estilo calendário).
 
 ## Onde vive o projeto (GitHub)
 
@@ -72,7 +74,7 @@ trigger mantém em sincronia com `categoria_id`.
 | Receitas | `receitas.html` | o que entrou, de quem, de onde |
 | Assistente | `assistente.html` | perguntar em português |
 | Alterações | `alteracoes.html` | quem mudou o quê |
-| Categorias | `categorias.html` | criar, renomear, arquivar |
+| Categorias | `categorias.html` | criar, renomear, arquivar — subcategoria **e grupo** |
 
 Camada compartilhada em `assets/`: `modelo.js` (regras de negócio), `db.js` (auth, leitura
 paginada, cache), `ui.js` (nav, toast, estados, gráficos), `app.css` (tokens, tipografia).
@@ -297,6 +299,12 @@ referência de modelagem, não como dependência.
 | Empresas, 12 meses | **−R$ 36.326** — a família banca a diferença |
 | Piso de sobrevivência | R$ 3.209/mês de fixo |
 
+> Estes são os números de 06/08/2026 (a fotografia da spec). Em 08/09/2026 a base já
+> era **3.316 transações** e a fila de triagem **1.018** (1.017 sem categoria, 983 sem
+> `cls`) — cresce com o sync diário do Pluggy (cauda longa), esperado. Por isso as
+> asserções de fila do `verificacao.sql` viraram piso/invariante (PR #25): número travado
+> em coisa que cresce vira ruído.
+
 ---
 
 ## Documentos
@@ -442,3 +450,68 @@ Pluggy notificar sozinho.
   senão o sync do BTG/Cumbuca restante para.
 - Quando conectar BTG/Nubank/InfinitePay no Pluggy, repetir o corte para esses `src`.
 - Rotas `/debug/*` mantidas a pedido (úteis para diagnóstico); protegidas por segredo.
+
+
+---
+
+## Diário — 08/09/2026: três melhorias no app + asserções robustas
+
+Sessão de melhorias pedidas pelo Juarez. Cada uma saiu como um PR próprio, para
+revisão isolada, seguindo a convenção.
+
+**Entregue (mesclado na `main`):**
+
+- **Abre no mês atual** (PR #22). Início, Análise e Detalhe de grupo passam a abrir no
+  mês do calendário corrente (nem à frente, nem atrás), mesmo quando o mês ainda não tem
+  lançamento — antes abriam no mês mais recente COM dado. Novos utilitários em
+  `modelo.js`: `M.mesAtual()` (mês local, sem o bug de fuso do `toISOString()`/UTC perto
+  da virada) e `M.mesesComAtual()` (garante o mês corrente no topo da navegação). Quando
+  o mês atual está vazio, o Início mostra um aviso em vez de R$ 0.
+
+- **Grupo como entidade editável** (PR #23). O grupo (Alimentação, Transporte…) deixou de
+  ser só texto em `categorias.grupo` com cor/ordem/tier chumbados em `modelo.js` e virou
+  entidade editável na tela Categorias — criar, renomear e arquivar, no mesmo espírito da
+  subcategoria. Migração `sql/2026-09-07_grupos.sql` (ADITIVA): tabela `grupos`
+  (nome, cor, tier, eixo, ordem, ativa) + RLS (mexer = gestor), seed dos 12 grupos atuais,
+  e funções ATÔMICAS `criar_grupo`, `renomear_grupo` (atualiza `grupos` + `categorias.grupo`
+  + `metas`) e `arquivar_grupo` (move/funde subcategorias para outro grupo, remove orçamento,
+  arquiva) — mesmo padrão de `arquivar_categoria`. No front, `GRUPOS_DESPESA`/`COR_GRUPO`/`TIER`
+  viraram FALLBACK: `M.hidratarGrupos()` os reconstrói da tabela ao carregar (via
+  `DB.grupos()`, que entra em `DB.tudo()`), então Início, Análise, Detalhe de grupo,
+  Planejar e Receitas refletem grupos novos/renomeados/arquivados.
+
+- **Reclassificar com pergunta de escopo** (PR #24). Em Lançamentos, tocar num lançamento
+  JÁ categorizado abre um diálogo para trocar a categoria; ao mudar, pergunta o escopo com
+  três opções no estilo "editar evento recorrente" do calendário — porque aqui "recorrente"
+  é a regra por descrição que a triagem ensina:
+  - **Este evento**: muda só o lançamento; a regra fica como está.
+  - **Este e os eventos seguintes**: muda este e faz upsert da regra (vale para os próximos
+    ingeridos pela VPS/Pluggy); não mexe nos anteriores.
+  - **Todos os eventos**: muda este, faz upsert da regra e reaplica aos que casam o padrão
+    via `M.regraQueCasa` (o mesmo matcher do motor de regras — o retro não diverge do
+    futuro). Empréstimo fica de fora.
+
+  Resolve o caso do galão de água comprado no posto: dá para dizer "só este evento" sem
+  contaminar a regra de Combustível. Descrição curta demais para virar regra: só oferece
+  "Este evento". Nenhuma mudança de banco — reusa `DB.classificar`/`ensinarRegra`/`aplicarLote`.
+
+- **Asserções robustas ao crescimento** (PR #25, `verificacao.sql`). As asserções 2, 3, 4 e
+  19 travavam números de 06/08 (620/623/656/9) que CRESCEM com o sync diário (cauda longa),
+  e davam FALHOU sem defeito. Reescritas: #2 e #3 viram contagens informativas (piso `>= 0`);
+  #4 vira o invariante de verdade — não existe 3º estado (toda transação está resolvida ou na
+  fila, 0 por construção); #19 vira piso `>= 9` (a garantia forte é a #20). Adicionado ao
+  diagnóstico o SQL que lista QUAL texto novo aparece em #19. Depois disso, `verificacao.sql`
+  passa 26/26.
+
+**Migração aplicada em produção (com autorização):** `sql/2026-09-07_grupos.sql` rodou no
+Supabase; `verificacao.sql` passou 26/26 (asserções 22–25 confirmam a tabela `grupos`, RLS,
+seed e as três funções).
+
+**Dado tocado em produção:** o único texto novo sem de-para em #19 era `Transfer` (1
+lançamento, provável transferência truncada). Decisão: NÃO criar alias genérico `Transfer`
+(seria a armadilha da regra por prefixo curto — ver armadilha nº 7). Classificado o
+lançamento pontual como `Movimentação › Transferência própria` (`cls = 'Não é gasto'`).
+
+**Convenção reforçada:** número travado em asserção que cresce vira ruído — usar piso ou um
+invariante. E alias/regra por prefixo curto e genérico continua proibido, mesmo para um único
+caso conveniente.
