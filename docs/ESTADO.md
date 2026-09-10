@@ -25,6 +25,10 @@ o **sinal do cartão no Pluggy** (compra vinha como `entrada`/receita): código 
 dados (PRs #36/#37, só cartão-Pluggy), o que trouxe o custo de vida de agosto de ~R$ 5.371
 para ~R$ 10.768 — e uma conferência com a fatura confirmou que o restante (parcelas por
 competência, empresa fora do custo de vida, cartões adicionais da Raiane) está correto.
+Ainda em 09/09 foi consertado o **webhook do Pluggy** (o sync tinha parado em 05/09): o
+`/webhook` respondia 401 e o Pluggy descarta evento 4xx sem retry — agora há um webhook
+GLOBAL registrado via API (PR #39), e o prefixo `Débito automático DA` entrou na lista de
+descarte.
 
 ## Onde vive o projeto (GitHub)
 
@@ -725,3 +729,58 @@ total da fatura por natureza — e é o número mais útil para o propósito do 
 
 **Pendência do Juarez:** reclassificar `SHOPEE *AUMOX` de Rai Móveis para pessoal (ajuste
 pontual na tela Lançamentos; decidir escopo por causa das parcelas AUMOX que casam a regra).
+
+---
+
+## Diário — 09/09/2026 (fim): webhook do Pluggy consertado (o sync tinha parado)
+
+O Juarez notou que o app parou em 05/09, mas havia movimentação real em 06–08/09. O sync
+do Pluggy tinha parado — e a investigação achou uma armadilha nova, cara.
+
+**Diagnóstico (VPS + doc oficial do Pluggy).** O serviço estava saudável (`/health` ok) e o
+item saudável no Pluggy (status UPDATED, sem pedir re-login). Forçar `/debug/processar?itemId=...`
+trouxe os lançamentos que faltavam (2317 → 2327). Ou seja: o Pluggy sincronizava do lado
+dele, mas **não avisava** nosso serviço. Nos logs, só havia processamento nos disparos
+manuais/deploy — nunca por webhook automático.
+
+**Causa raiz (dois problemas somados):**
+1. O `/webhook` exigia o header `X-Webhook-Secret`, mas **o Pluggy não envia header por
+   conta própria** (doc oficial). Então respondia **401** — e a doc é explícita: resposta
+   **401/403/404/400/405 faz o Pluggy DESCARTAR o evento sem retry**. Todo webhook era
+   perdido para sempre.
+2. O `webhookUrl` do connect token só cobre itens criados COM aquele token. O item já
+   existia → ficava sem webhook.
+
+**Correção (PR #39, `server/pluggy/server.mjs`):**
+- `registrarWebhook()`: registra/atualiza um **webhook GLOBAL** (`event: all`) via
+  `POST`/`PATCH /webhooks`, com `headers: { X-Webhook-Secret }` — assim o Pluggy avisa e a
+  notificação chega com o header que a rota já valida. Roda no **boot** (idempotente,
+  tolerante a falha) e sob demanda em **`/debug/registrar-webhook`**.
+- `/webhook` passa a aceitar o segredo por header OU por `?s=` (defesa extra) e ignora a
+  querystring no match. Continua respondendo **2XX < 10s** e processando depois (a doc
+  exige resposta rápida, senão conta como falha).
+- Confirmado em produção após o redeploy: `GET /debug/registrar-webhook` devolve o webhook
+  `event: all` → `.../webhook` (id `1d41c8b0-...`). O sync automático voltou.
+
+**No mesmo PR — prefixo burocrático `DEBITOAUTOMATICODA`** (aprovado). "Débito automático DA
+CLARO BL/IT..." e "...CLARO CELULAR..." colidiam em `DEBITOAUTOMATICODA` (a triagem barrava
+como genérico, corretamente). Com o prefixo na lista de descarte, viram `CLAROBLIT` /
+`CLAROCELULAR` (e "...ULTRAGAZ..." → `ULTRAGAZNOR`), cada um com regra própria. Front e
+serviço idênticos, testados byte a byte. **"Pix enviado ..." fica de fora** de propósito:
+Pix a pessoa não deve virar regra (a mesma pessoa aparece em contextos diferentes — mesma
+lógica do Empréstimo).
+
+**Lição (armadilha do webhook):** num webhook, **responder 4xx = perder o evento para
+sempre** no Pluggy (sem retry). A validação de segredo tem que estar certa, e o registro do
+webhook tem que ser GLOBAL (não só via connect token). Se o sync parar de novo: checar
+`/debug/registrar-webhook` e, para recuperar o atraso, `/debug/processar?itemId=...`.
+
+**Também confirmado nesta investigação (não é bug):** a triagem individual JÁ cria regra
+(`gravar` → `DB.ensinarRegra`, toast "Salvo e aprendido"). Lançamentos que casam regra e
+ainda aparecem na fila/lote são os ingeridos ANTES de a regra existir — a tela de lote é o
+acerto retroativo, de propósito (aplicar em massa no servidor foi o que causou o desastre
+do `PAGAMENTODEPIXQRCO`). Em aberto p/ decidir: um "micro-lote contextual" que, ao ensinar a
+regra, ofereça aplicar aos iguais da fila ali mesmo (com a mesma proteção de genérico do
+lote) — une os dois momentos sem perder a revisão visual. Sem implementar até decisão.
+
+**Pendência do Juarez:** reclassificar `SHOPEE *AUMOX` (Rai Móveis → pessoal).
