@@ -179,13 +179,15 @@
      'Pagamento de Pix QR Code <QUALQUER LOJA>' -> PAGAMENTODEPIXQRCO.
      Isso é a armadilha nº7: uma regra genérica que casa lojas sem relação.
 
-     Medido no banco em 08/09/2026, só DOIS prefixos têm esse
-     comportamento (chave de 18 chars compartilhada por muitos
-     estabelecimentos distintos):
-       "Pagamento de Pix QR Code"  -> PAGAMENTODEPIXQRCODE (20 letras)
-       "Pagamento de boleto"       -> PAGAMENTODEBOLETO    (17 letras)
+     Prefixos com esse comportamento (chave de 18 chars compartilhada por
+     muitos estabelecimentos distintos), medidos no banco:
+       "Pagamento de Pix QR Code" -> PAGAMENTODEPIXQRCODE (08/09/2026)
+       "Pagamento de boleto"      -> PAGAMENTODEBOLETO    (08/09/2026)
+       "Débito automático DA"     -> DEBITOAUTOMATICODA   (09/09/2026)
      Redes como PAGUEMENOS/AMAZONBR também repetem a chave, mas são o MESMO
      estabelecimento com grafia variável — regra legítima, NÃO entram aqui.
+     "Pix enviado ..." (a pessoas) fica de FORA de propósito: Pix a pessoa
+     não deve virar regra (a mesma pessoa aparece em contextos diferentes).
 
      Descartamos o prefixo ANTES de cortar 18, então o padrão passa a sair
      do nome real: 'Barbearia Do Torcedor' -> BARBEARIADOTORCED, 'TIM S A'
@@ -195,7 +197,7 @@
      ⚠️ ESTA LISTA E ESTA LÓGICA TÊM QUE SER IDÊNTICAS às do serviço Pluggy
      (server/pluggy/server.mjs), que casa as regras no sync. Divergir aqui
      faz a regra ensinada no app nunca casar no ingestão — quebra silenciosa. */
-  var PREFIXOS_BUROCRATICOS = ['PAGAMENTODEPIXQRCODE', 'PAGAMENTODEBOLETO'];
+  var PREFIXOS_BUROCRATICOS = ['PAGAMENTODEPIXQRCODE', 'PAGAMENTODEBOLETO', 'DEBITOAUTOMATICODA'];
 
   // Recebe a string só-letras (A-Z, maiúsculas) e remove um prefixo
   // burocrático conhecido, se houver. Devolve o restante (o nome real).

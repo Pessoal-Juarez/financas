@@ -87,6 +87,44 @@ async function connectToken(clientUserId) {
   return r.accessToken;
 }
 
+// Registra (ou confirma) um webhook GLOBAL na conta Pluggy, para `event: all`.
+// Por que global e não só o webhookUrl do connect token: o webhookUrl do
+// connect só notifica os itens criados COM aquele token. Um item que já
+// existe (ou cujo consentimento foi renovado sem passar pelo connect) fica
+// sem webhook, e o Pluggy sincroniza sem avisar — foi o que travou o sync.
+//
+// O Pluggy NÃO envia header por conta própria (doc oficial). Para o /webhook
+// continuar protegido, registramos o webhook com um `headers` contendo o
+// X-Webhook-Secret — assim toda notificação do Pluggy chega com o header que
+// a rota /webhook já valida. Idempotente: se já houver um webhook para a
+// mesma URL, não cria outro.
+async function registrarWebhook() {
+  if (!WEBHOOK_URL) { console.log('[webhook] PLUGGY_WEBHOOK_URL ausente — registro pulado'); return; }
+  const key = await apiKey();
+  let existentes = [];
+  try {
+    const r = await pluggy('/webhooks', { key });
+    existentes = (r && r.results) || [];
+  } catch (e) { console.error('[webhook] nao listou webhooks:', e.message); }
+
+  const jaTem = existentes.find((w) => w && w.url === WEBHOOK_URL);
+  const corpo = { url: WEBHOOK_URL, event: 'all' };
+  if (WEBHOOK_SECRET) corpo.headers = { 'X-Webhook-Secret': WEBHOOK_SECRET };
+
+  try {
+    if (jaTem) {
+      // Garante evento 'all' e o header do segredo, sem duplicar.
+      await pluggy(`/webhooks/${jaTem.id}`, { method: 'PATCH', key, body: corpo });
+      console.log(`[webhook] atualizado (id ${jaTem.id}) -> ${WEBHOOK_URL}`);
+    } else {
+      const novo = await pluggy('/webhooks', { method: 'POST', key, body: corpo });
+      console.log(`[webhook] registrado (id ${novo && novo.id}) -> ${WEBHOOK_URL}`);
+    }
+  } catch (e) {
+    console.error('[webhook] falha ao registrar:', e.message);
+  }
+}
+
 // ------------------------------------------------------------------
 // Supabase REST (service_role)
 // ------------------------------------------------------------------
@@ -115,7 +153,7 @@ const BASES = 'AAAAAEEEEIIIIOOOOOUUUUC';
 // o prefixo ANTES de cortar 18, para o padrão sair do nome real do
 // estabelecimento. ⚠️ TEM que ser IDÊNTICO ao assets/modelo.js do front — se
 // divergir, a regra ensinada no app não casa aqui no sync (quebra silenciosa).
-const PREFIXOS_BUROCRATICOS = ['PAGAMENTODEPIXQRCODE', 'PAGAMENTODEBOLETO'];
+const PREFIXOS_BUROCRATICOS = ['PAGAMENTODEPIXQRCODE', 'PAGAMENTODEBOLETO', 'DEBITOAUTOMATICODA'];
 function descartarPrefixo(letras) {
   for (const p of PREFIXOS_BUROCRATICOS) {
     if (letras.indexOf(p) === 0 && letras.length > p.length) return letras.slice(p.length);
@@ -319,6 +357,23 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Diagnóstico/manutenção: registra (ou confirma) o webhook global agora,
+  // e lista os webhooks existentes. Protegido. Útil para consertar o sync
+  // sem depender de reiniciar o serviço.
+  if (req.method === 'GET' && req.url.startsWith('/debug/registrar-webhook')) {
+    if (WEBHOOK_SECRET && req.headers['x-webhook-secret'] !== WEBHOOK_SECRET) {
+      res.writeHead(401); return res.end();
+    }
+    try {
+      await registrarWebhook();
+      const r = await pluggy('/webhooks', { key: await apiKey() });
+      const lista = ((r && r.results) || []).map((w) => ({ id: w.id, url: w.url, event: w.event }));
+      return send(res, 200, { ok: true, webhooks: lista });
+    } catch (e) {
+      return send(res, 502, { error: e.message });
+    }
+  }
+
   if (req.method === 'POST' && req.url === '/connect-token') {
     const body = await lerCorpo(req);
     try {
@@ -404,8 +459,17 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  if (req.method === 'POST' && req.url === '/webhook') {
-    if (WEBHOOK_SECRET && req.headers['x-webhook-secret'] !== WEBHOOK_SECRET) {
+  if (req.method === 'POST' && req.url.split('?')[0] === '/webhook') {
+    // O segredo pode chegar de dois jeitos: no header X-Webhook-Secret (que
+    // registramos no webhook global via API) OU na query string ?s=... (útil
+    // se algum dia o header não vier). Aceitar os dois evita perder evento.
+    // ⚠️ Doc do Pluggy: responder 401/403/404/400/405 faz o evento ser
+    // DESCARTADO sem retry. Por isso a validação tem que estar certa — um 401
+    // indevido perde o dado para sempre.
+    const q = new URL(req.url, 'http://x').searchParams.get('s');
+    const okHeader = req.headers['x-webhook-secret'] === WEBHOOK_SECRET;
+    const okQuery = q === WEBHOOK_SECRET;
+    if (WEBHOOK_SECRET && !okHeader && !okQuery) {
       res.writeHead(401); return res.end();
     }
     const evt = await lerCorpo(req);
@@ -429,5 +493,10 @@ if (io !== -1) {
     console.log(`pluggy-financas ouvindo em :${PORT}`);
     console.log(`  POST /connect-token · POST /webhook · GET /health`);
     console.log(WEBHOOK_SECRET ? '  (/webhook protegido por X-Webhook-Secret)' : '  (aviso: WEBHOOK_SECRET não definido)');
+    // Ao subir, garante que existe um webhook global (event: all) apontando
+    // para este serviço. É o que faz o Pluggy AVISAR quando sincroniza — sem
+    // isso o sync roda no Pluggy mas o dado não chega (foi o bug do sync
+    // parado). Idempotente e tolerante a falha (não derruba o serviço).
+    registrarWebhook().catch((e) => console.error('[webhook] registro no boot falhou:', e.message));
   });
 }
