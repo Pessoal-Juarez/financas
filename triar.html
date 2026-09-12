@@ -399,13 +399,26 @@ async function salvar(t, sugestao) {
     return;
   }
 
-  // Item que JÁ vinha com sugestão de regra (não é a primeira vez) e cuja
-  // CATEGORIA foi trocada: pergunta o escopo (este / seguintes / todos),
-  // igual à reclassificação em Lançamentos (PR #24). Item novo (sem
-  // sugestão) segue o fluxo direto de sempre — não há regra a "corrigir",
-  // é a primeira que se ensina.
+  // Decide se abre a pergunta de escopo. Três gatilhos:
+  //  - trocouCategoria: item que já tinha sugestão de regra e a categoria
+  //    mudou → oferecer corrigir a regra (este/seguintes/todos), PR #24/#29.
+  //  - irmãs de parcela na fila: a MESMA compra fatiada, ainda por triar →
+  //    oferecer classificar as irmãs de uma vez (Ideia F). Não precisa de
+  //    regra: é literalmente a mesma compra.
+  //  - iguais na fila por descrição (não genérico) → oferecer aplicar aos
+  //    que já estão esperando com a mesma descrição (Ideia C).
   const trocouCategoria = sugestao && sugestao.categoria_id !== catId;
-  if (trocouCategoria) { perguntarEscopo(t, sugestao, catId, cls); return; }
+  const irmas = M.irmasDeParcela(t, TX, true);
+  const podeRegra = M.podeVirarRegra(M.normalizar(t.descricao)) && !M.padraoEhGenericoEm(t.descricao, TX);
+  const iguaisFila = podeRegra
+    ? TX.filter(x => x.id !== t.id && M.precisaTriagem(x) && x.cls !== 'Empréstimo' &&
+        M.regraQueCasa(x.descricao, [{ padrao: M.normalizar(t.descricao), categoria_id: catId }]))
+    : [];
+
+  if (trocouCategoria || irmas.length || iguaisFila.length) {
+    perguntarEscopo(t, sugestao, catId, cls, { irmas, iguaisFila });
+    return;
+  }
 
   await gravar(t, sugestao, catId, cls);
 }
@@ -456,7 +469,10 @@ async function gravar(t, sugestao, catId, cls) {
    Mesmo espírito do "editar evento recorrente" do calendário (PR #24, em
    Lançamentos): aqui "recorrente" é a regra por descrição que a triagem
    ensina. Só aparece quando havia sugestão e a CATEGORIA mudou. */
-function perguntarEscopo(t, sugestao, catId, cls) {
+function perguntarEscopo(t, sugestao, catId, cls, extras) {
+  extras = extras || {};
+  const irmas = extras.irmas || [];
+  const iguaisFila = extras.iguaisFila || [];
   const podeRegra = M.podeVirarRegra(M.normalizar(t.descricao));
   // ⚠️ Armadilha nº7: quando a descrição normaliza para uma chave que casa
   // vários estabelecimentos DISTINTOS (ex.: "Pagamento de Pix QR Code ..."
@@ -469,23 +485,45 @@ function perguntarEscopo(t, sugestao, catId, cls) {
     '<p class="titulo" style="margin:0 0 4px">Alterar categoria</p>' +
     '<p class="mudo" style="margin:0">' + UI.escapar(t.descricao) + '</p>' +
     '<p class="mudo" style="font-size:.8125rem;margin:2px 0 10px">Vale só para este ' +
-      'lançamento ou também para os próximos com a mesma descrição?</p>' +
-    '<label class="escopo"><input type="radio" name="esc" value="este" checked>' +
-      '<span class="rot"><b>Este evento</b>' +
-        '<span>Muda só este lançamento. A regra continua como está.</span></span></label>' +
+      'lançamento ou também para outros relacionados?</p>' +
+
+    // Parcelas da MESMA compra (Ideia F). Checkbox independente do rádio de
+    // regra: parcela é a mesma compra fatiada, herda a classificação com
+    // segurança e NÃO precisa virar regra. Marcado por padrão.
+    (irmas.length
+      ? '<label class="escopo"><input type="checkbox" id="chkIrmas" checked>' +
+          '<span class="rot"><b>As outras ' + irmas.length + ' parcela' +
+            (irmas.length === 1 ? '' : 's') + ' desta compra</b>' +
+            '<span>Mesma compra parcelada, ainda na fila. Recebem a mesma ' +
+            'categoria — não vira regra.</span></span></label>'
+      : '') +
+
+    // Escopo de REGRA (este / seguintes / todos) — só quando há regra a
+    // ensinar/corrigir e não é genérico. Default: para item NOVO (sem
+    // sugestão) que pode virar regra, "seguintes" vem marcado — mantém a
+    // conveniência de sempre criar regra ao triar algo novo. Para item que
+    // já tinha sugestão, "este" é o default (mudança pontual, não mexe na
+    // regra sem querer).
+    '<label class="escopo"><input type="radio" name="esc" value="este"' +
+      ((ofereceRegra && !sugestao) ? '' : ' checked') +
+      '><span class="rot"><b>Este evento</b>' +
+        '<span>Muda só este lançamento (e as parcelas marcadas acima).</span></span></label>' +
     (ofereceRegra
-      ? '<label class="escopo"><input type="radio" name="esc" value="seguintes">' +
-          '<span class="rot"><b>Este e os eventos seguintes</b>' +
-            '<span>Muda este e corrige a regra para os próximos. Não mexe nos anteriores.</span></span></label>' +
+      ? '<label class="escopo"><input type="radio" name="esc" value="seguintes"' +
+          (!sugestao ? ' checked' : '') +
+          '><span class="rot"><b>Este e os eventos seguintes</b>' +
+            '<span>Muda este e ' + (sugestao ? 'corrige' : 'cria') + ' a regra para os próximos. ' +
+            'Não mexe nos anteriores.</span></span></label>' +
         '<label class="escopo"><input type="radio" name="esc" value="todos">' +
           '<span class="rot"><b>Todos os eventos</b>' +
-            '<span>Muda este, os anteriores com a mesma descrição e os próximos.</span></span></label>'
+            '<span>Muda este, os ' + (iguaisFila.length ? iguaisFila.length + ' que já estão na fila' : 'anteriores') +
+            ' com a mesma descrição e os próximos.</span></span></label>'
       : generico
         ? '<p class="honestidade" style="margin:8px 0 0">A descrição desse lançamento é igual à de ' +
           'vários estabelecimentos diferentes (o banco corta o nome). Virar regra reclassificaria ' +
-          'lojas sem relação, então só dá para mudar <b>este</b> lançamento.</p>'
+          'lojas sem relação, então a regra fica de fora — mas as parcelas acima podem ir junto.</p>'
         : '<p class="honestidade" style="margin:8px 0 0">A descrição é curta demais para virar ' +
-          'uma regra segura, então só dá para mudar este lançamento.</p>') +
+          'uma regra segura, então não vira regra — mas as parcelas acima podem ir junto.</p>') +
     '<div class="acoes" style="display:flex;gap:8px;margin-top:16px">' +
       '<button class="btn" id="okEsc" style="flex:1">OK</button>' +
       '<button class="btn alt" id="cancelEsc" style="flex:1">Cancelar</button></div>' +
@@ -495,11 +533,14 @@ function perguntarEscopo(t, sugestao, catId, cls) {
   $('cancelEsc').onclick = () => dlg.close();
   $('okEsc').onclick = () => {
     const sel = (document.querySelector('input[name=esc]:checked') || {}).value || 'este';
-    aplicarEscopo(t, sugestao, catId, cls, sel);
+    const comIrmas = !!($('chkIrmas') && $('chkIrmas').checked);
+    aplicarEscopo(t, sugestao, catId, cls, sel, { irmas: comIrmas ? irmas : [], iguaisFila });
   };
 }
 
-async function aplicarEscopo(t, sugestao, catId, cls, escopo) {
+async function aplicarEscopo(t, sugestao, catId, cls, escopo, extras) {
+  extras = extras || {};
+  const irmas = extras.irmas || [];
   const cNome = (catPorId(catId) || {}).nome || null;
   // Trava de segurança: mesmo que o escopo chegue como "seguintes/todos",
   // padrão genérico nunca ensina nem reaplica regra (armadilha nº7). Rebaixa
@@ -519,23 +560,39 @@ async function aplicarEscopo(t, sugestao, catId, cls, escopo) {
   const alvo = TX.find(x => x.id === t.id);
   if (alvo) { alvo.categoria_id = catId; alvo.categoria = cNome; alvo.cls = cls; }
 
-  // 2. "seguintes" e "todos" corrigem/ensinam a regra (vale para os
-  //    próximos ingeridos pela VPS/Pluggy).
+  // 2. Parcelas irmãs desta mesma compra (independe de regra). Mesma
+  //    categoria E mesma classificação — é a mesma compra fatiada.
   let msg = 'Alterado só neste lançamento';
+  if (irmas.length) {
+    const res = await DB.aplicarLote(
+      irmas.map(x => ({ id: x.id, mudancas: { categoria_id: catId, categoria: cNome, cls: cls } })),
+      (feitos, total) => { const p = $('progressoEsc'); if (p) p.textContent = 'parcelas: ' + feitos + ' de ' + total; }
+    );
+    irmas.forEach(x => {
+      if (res.falhas.some(fa => fa.id === x.id)) return;
+      const a2 = TX.find(y => y.id === x.id);
+      if (a2) { a2.categoria_id = catId; a2.categoria = cNome; a2.cls = cls; }
+    });
+    msg = res.ok + ' parcela' + (res.ok === 1 ? '' : 's') + ' desta compra classificada' + (res.ok === 1 ? '' : 's');
+  }
+
+  // 3. "seguintes" e "todos" criam/corrigem a regra (vale para os próximos
+  //    ingeridos pela VPS/Pluggy).
   if (escopo === 'seguintes' || escopo === 'todos') {
     const re = await DB.ensinarRegra(t.descricao, catId, cNome, cls);
-    if (re.ok) { REGRAS = await DB.regras(true); msg = 'Alterado e regra corrigida'; }
+    if (re.ok) { REGRAS = await DB.regras(true); msg += (irmas.length ? ' · regra salva' : 'Salvo e aprendido'); }
     else if (re.motivo === 'padrao-curto') {
-      msg = 'Alterado. A descrição é curta demais para virar regra.';
+      msg += ' · descrição curta demais para virar regra';
     }
   }
 
-  // 3. "todos" reaplica aos que casam o padrão (anteriores inclusive), por
-  //    "contém", idêntico ao motor de regras. Empréstimo fica de fora.
+  // 4. "todos" reaplica aos que casam o padrão (anteriores/fila inclusive),
+  //    por "contém", idêntico ao motor de regras. Empréstimo fica de fora.
   if (escopo === 'todos') {
     const padrao = M.normalizar(t.descricao);
     const regraNova = [{ padrao: padrao, categoria_id: catId }];
-    const alvos = TX.filter(x => x.id !== t.id && x.categoria_id !== catId &&
+    const jaMexidos = { [t.id]: 1 }; irmas.forEach(x => { jaMexidos[x.id] = 1; });
+    const alvos = TX.filter(x => !jaMexidos[x.id] && x.categoria_id !== catId &&
       x.cls !== 'Empréstimo' && M.regraQueCasa(x.descricao, regraNova));
     if (alvos.length) {
       const res = await DB.aplicarLote(
@@ -549,7 +606,7 @@ async function aplicarEscopo(t, sugestao, catId, cls, escopo) {
       });
       msg = res.ok + ' lançamento' + (res.ok === 1 ? '' : 's') + ' atualizado' +
         (res.ok === 1 ? '' : 's') + (res.falhas.length ? ', ' + res.falhas.length + ' falharam' : '') +
-        ' · regra corrigida';
+        ' · regra atualizada';
     }
   }
 
