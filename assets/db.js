@@ -287,8 +287,17 @@
   // O Assistente não fala com a VPS: enfileira a pergunta e o cron de 2 em 2
   // minutos responde. É esse desacoplamento que permite o front ser HTML
   // estático sem servidor.
+  //
+  // ⚠️ `status: 'aberta'` é obrigatório: o script da VPS busca
+  // `perguntas?status=eq.aberta`. Sem isso a pergunta nasce com o default da
+  // coluna e o cron nunca a encontra — a pergunta ficaria "esperando a VPS"
+  // para sempre (era o caso do app novo, que inseria só `pergunta`). `autor`
+  // e `autor_id` alimentam o histórico e o "de quem foi a pergunta".
   async function perguntar(texto) {
-    var r = await sb.from('perguntas').insert({ pergunta: texto }).select().maybeSingle();
+    var linha = { pergunta: texto, status: 'aberta' };
+    if (USER && USER.id) linha.autor_id = USER.id;
+    if (NOME) linha.autor = NOME;
+    var r = await sb.from('perguntas').insert(linha).select().maybeSingle();
     if (r.error) return { erro: r.error.message };
     invalidar('perg');
     return { ok: true, id: r.data && r.data.id };

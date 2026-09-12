@@ -232,11 +232,21 @@ travado em coisa que cresce vira ruído, e asserção que grita sozinha deixa de
 | Rótulos | Da casa · Do Juarez · Da Raiane · Clínica · Emprestado · Não conta · A classificar | spec §4 |
 | Backend | **continua Supabase.** Firefly III avaliado e descartado | ver abaixo |
 | Gráficos | **SVG puro, sem Chart.js** — CDN quebraria o app offline | — |
-| Lembrete semanal de triagem | **descartado em 07/08/2026** — fica sem notificação | ver abaixo |
+| Lembrete de triagem | descartado em 07/08/2026 → **REABERTO em 12/09/2026**: lembrete **diário** aprovado (push web + plano B WhatsApp) | `docs/spec-notificacoes.md` · ver abaixo |
 
-### Por que não há lembrete de triagem (07/08)
+### Lembrete de triagem — descartado em 07/08, REABERTO e aprovado em 12/09
 
-Avaliado e descartado pelo Juarez. Fica registrado para não voltar como ideia nova.
+> **Atualização 12/09/2026:** este tema foi **reaberto e a decisão mudou**. Há agora um
+> lembrete **diário** de triagem aprovado, especificado em `docs/spec-notificacoes.md`
+> (status ✅ aprovada). O texto abaixo é o registro histórico do descarte original de
+> 07/08 e continua útil como contexto — os motivos que ele lista viraram os **riscos a
+> mitigar** na nova spec, não deixaram de existir. Resumo do que mudou: o sync diário do
+> Pluggy faz a fila crescer todo dia, então triagem virou **hábito recorrente** (não
+> mutirão), e um lembrete diário passou a fazer sentido. Canal escolhido: **push web**
+> (SW só de push, sem fetch/cache) com **WhatsApp como plano B** se o push falhar no
+> iPhone. Disparo no **serviço Pluggy**. Ver a spec para as decisões completas.
+
+**Registro histórico (07/08):** avaliado e descartado pelo Juarez naquela data.
 
 Notificação web exige **service worker**, que este projeto não tem — e a ausência dele é
 o que garantiu que a virada de chave não prendesse ninguém em versão velha. Além disso,
@@ -782,5 +792,67 @@ acerto retroativo, de propósito (aplicar em massa no servidor foi o que causou 
 do `PAGAMENTODEPIXQRCO`). Em aberto p/ decidir: um "micro-lote contextual" que, ao ensinar a
 regra, ofereça aplicar aos iguais da fila ali mesmo (com a mesma proteção de genérico do
 lote) — une os dois momentos sem perder a revisão visual. Sem implementar até decisão.
+
+**Pendência do Juarez:** reclassificar `SHOPEE *AUMOX` (Rai Móveis → pessoal).
+
+---
+
+## Diário — 12/09/2026: auditoria + Assistente ressuscitado no kiro-cli
+
+Sessão de auditoria do projeto. A primeira frente de ataque foi "confirmar o que ainda está
+vivo" — e revelou que **duas features estavam mortas em silêncio desde o corte do Cumbuca**
+(07/09).
+
+**O diagnóstico.** O cron `*/2 * * * * check-comandos.sh` foi comentado (`#CORTE-PLUGGY`) no
+corte do Cumbuca. Era ele que drenava a fila de `comandos` (botão "Atualizar do banco") **e**
+respondia a fila de `perguntas` (Assistente). Com ele desligado:
+- o botão "Atualizar do banco" enfileirava em `comandos` e mostrava "pedido na fila" para
+  algo que nunca era processado;
+- o Assistente aceitava a pergunta e ela ficava "esperando a VPS responder" para sempre.
+Nenhum dos dois avisava o usuário. Além disso, o motor do Assistente (`claude -p --model
+sonnet`) estava morto por OAuth expirado — a assinatura de Claude/Codex foi encerrada; a VPS
+hoje tem o **kiro-cli**.
+
+**Decisões (Juarez):**
+1. **"Atualizar do banco" — removido.** O Itaú agora sincroniza sozinho pelo Pluggy (diário),
+   então o botão perdeu o propósito. Some do `mais.html`; "Recarregar a tela" (descarta cache
+   e relê o Supabase) permanece. `DB.pedirSync`/`DB.comandos` ficam no `db.js` (código inerte,
+   não incomoda) caso um sync manual volte a fazer sentido com BTG/Nubank/InfinitePay.
+2. **Assistente — reativado, migrado para o kiro-cli.**
+
+**Bug de contrato achado de brinde (front).** `DB.perguntar` inseria só `{ pergunta }`, sem
+`status`. O script da VPS busca `perguntas?status=eq.aberta`. Ou seja, mesmo antes do corte,
+uma pergunta feita pelo **app novo** provavelmente nunca era encontrada pelo cron (as 3 do
+histórico tinham `autor`/`status`, vieram por outra via). Corrigido: `DB.perguntar` agora
+grava `status: 'aberta'` + `autor`/`autor_id`.
+
+**Migração do motor `claude` → `kiro-cli` (VPS, `perguntar.sh`).**
+- Comando: `kiro-cli chat --no-interactive --trust-tools=` — `--trust-tools=` vazio impede o
+  modelo de executar QUALQUER ferramenta (é o Assistente gerando texto, não um agente com
+  acesso à VPS).
+- ⚠️ **Prompt por STDIN, nunca como argumento.** O prompt carrega todos os lançamentos
+  (~160 mil caracteres) e, passado como argumento, estoura o `ARG_MAX` do SO ("Argument list
+  too long", exit 126). O `claude -p` antigo lia por stdin, por isso nunca esbarrou nisso.
+- Limpeza da saída: o kiro-cli imprime prompt colorido (`\x1b[...m> `), e rodapé
+  `▸ Credits • Time`. Filtro: remove ANSI, o `> ` da primeira linha e o rodapé.
+- Backup do `perguntar.sh` original salvo em `/root/financas/perguntar.sh.backup-*`.
+
+**Isolamento do cron (VPS).** Em vez de descomentar o `check-comandos.sh` inteiro (que traria
+de volta o `sync.sh` do Itaú, indesejado), criei `/root/financas/responder-perguntas.sh` com
+**só a Seção 2** (perguntas). Crontab: `*/2 * * * * responder-perguntas.sh` ativo; os
+`#CORTE-PLUGGY` (sync do Itaú) seguem comentados. Crontab gerado em arquivo, conferido
+(52 → 53 linhas) e aplicado com `crontab arquivo` (o cuidado registrado no corte de 07/09).
+Backup do crontab em `/root/financas/crontab.backup-assistente-*`.
+
+**Teste ponta a ponta:** pergunta inserida com `status: 'aberta'` → respondida
+automaticamente pelo cron em menos de 2 min. ✅
+
+**Duas ressalvas registradas:**
+- **Custo:** cada pergunta consome ~0,3 créditos do kiro-cli (prompt cheio com todos os
+  lançamentos). Uso baixo, mas não é grátis.
+- **Precisão:** o LLM somando ~3.400 linhas de JSON **não é determinístico** — a mesma
+  pergunta deu totais diferentes entre execuções. O Assistente serve para orientação, não
+  como calculadora exata. Se um dia incomodar, o caminho é pré-agregar os dados antes de
+  mandar ao modelo.
 
 **Pendência do Juarez:** reclassificar `SHOPEE *AUMOX` (Rai Móveis → pessoal).

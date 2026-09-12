@@ -93,15 +93,17 @@ function desenhar(perfil, pendentes) {
         '<span class="ic" aria-hidden="true">◐</span>' +
         '<span class="tx"><b>Tema</b><span id="temaEstado"></span></span>' +
       '</button>' +
-      '<button class="item" id="btnSync">' +
-        '<span class="ic" aria-hidden="true">🔄</span>' +
-        '<span class="tx"><b>Atualizar do banco</b>' +
-          '<span>Pede à VPS para puxar o Itaú. Responde em até 2 min.</span></span>' +
-      '</button>' +
+      // "Atualizar do banco" foi removido em 12/09/2026: enfileirava em
+      // `comandos`, drenado pelo cron check-comandos.sh da VPS — que está
+      // DESLIGADO desde o corte do Cumbuca (07/09, #CORTE-PLUGGY). O botão
+      // mostrava "pedido na fila" para algo que nunca era processado. O Itaú
+      // agora sincroniza sozinho pelo Pluggy (diário), então o botão perdeu
+      // o propósito. "Recarregar a tela" (abaixo) é o que o dia a dia pede:
+      // descarta o cache e relê o Supabase.
       '<button class="item" id="btnAtualizar">' +
         '<span class="ic" aria-hidden="true">⟳</span>' +
         '<span class="tx"><b>Recarregar a tela</b>' +
-          '<span>Só descarta o cache local e relê o que já está no Supabase</span></span>' +
+          '<span>Descarta o cache local e relê o que já está no Supabase</span></span>' +
       '</button>' +
     '</div>' +
 
@@ -123,17 +125,8 @@ function desenhar(perfil, pendentes) {
     try { localStorage.setItem('fin.tema', prox); } catch (e) {}
     pintarPreferencias();
   };
-  // Duas coisas diferentes, e o app antigo só tinha a primeira:
-  //   Atualizar do banco  -> enfileira em `comandos`; a VPS puxa o Itaú
-  //   Recarregar a tela   -> descarta o cache local, relê o Supabase
-  $('btnSync').onclick = async () => {
-    const b = $('btnSync');
-    b.disabled = true;
-    const r = await DB.pedirSync('sync');
-    b.disabled = false;
-    if (r.erro) { UI.toast('Não consegui pedir: ' + r.erro, 'erro'); return; }
-    UI.toast('Pedido na fila. A VPS puxa em até 2 minutos.');
-  };
+  // "Recarregar a tela": descarta o cache local e relê o Supabase. (O antigo
+  // "Atualizar do banco" foi removido — ver comentário no HTML acima.)
   $('btnAtualizar').onclick = async () => {
     DB.invalidar();
     UI.toast('Cache descartado. Relendo…');
