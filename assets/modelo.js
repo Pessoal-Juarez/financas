@@ -495,6 +495,45 @@
   // enche o card de falso positivo, que é o mesmo que desligá-lo.
   function ehParcelada(t) { return /^\d+\/\d+$/.test(String(t.parcela || '')); }
 
+  // O TOTAL de parcelas ('pp/tt' -> tt). 0 se não for parcelada.
+  function totalParcelas(t) {
+    var m = /^\d+\/(\d+)$/.exec(String(t.parcela || ''));
+    return m ? Number(m[1]) : 0;
+  }
+
+  /* Chave que identifica UMA compra parcelada (todas as suas parcelas
+     compartilham). A descrição de cartão termina em ' pp/tt', que muda por
+     parcela — por isso removemos o sufixo antes de comparar. Junto com a
+     data da COMPRA (data_compra, fixa entre as parcelas), o valor da parcela
+     e o total, isola a compra. É a mesma ideia da dedup em projecaoParcelas.
+     Sem data_compra (dado antigo), a chave fica fraca e devolvemos null —
+     nesse caso não agrupamos irmãs (melhor não agrupar do que agrupar errado). */
+  function chaveCompra(t) {
+    if (!ehParcelada(t)) return null;
+    if (!t.data_compra) return null;
+    var descBase = String(t.descricao || '').replace(/\s*\d+\/\d+\s*$/, '').trim();
+    return t.data_compra + '|' + descBase + '|' + t.valor + '|' + totalParcelas(t);
+  }
+
+  /* As OUTRAS parcelas da MESMA compra de `t`, dentro de `tx`. Serve para,
+     ao triar uma parcela, oferecer classificar as irmãs de uma vez — elas
+     são literalmente a mesma compra fatiada, então herdam a classificação
+     com segurança (conjunto pequeno e bem definido, sem risco de espalhar
+     para lojas sem relação). `apenasPendentes` limita às que ainda faltam. */
+  function irmasDeParcela(t, tx, apenasPendentes) {
+    var chave = chaveCompra(t);
+    if (!chave) return [];
+    var fora = [];
+    for (var i = 0; i < tx.length; i++) {
+      var x = tx[i];
+      if (x.id === t.id) continue;
+      if (chaveCompra(x) !== chave) continue;
+      if (apenasPendentes && !precisaTriagem(x)) continue;
+      fora.push(x);
+    }
+    return fora;
+  }
+
   function assinaturasNovas(tx, mesRef) {
     var recentes = mesesAnteriores(mesRef, TRAVAS.assinaturaOcorrencias);
     var limite = recentes[recentes.length - 1];
@@ -746,7 +785,9 @@
     gruposAcimaDoNormal: gruposAcimaDoNormal, parcelasAVencer: parcelasAVencer,
     assinaturas: assinaturas, assinaturasNovas: assinaturasNovas,
     projecaoParcelas: projecaoParcelas, emprestimos: emprestimos,
-    saldoDasEmpresas: saldoDasEmpresas
+    saldoDasEmpresas: saldoDasEmpresas,
+    ehParcelada: ehParcelada, totalParcelas: totalParcelas,
+    chaveCompra: chaveCompra, irmasDeParcela: irmasDeParcela
   };
 
   global.M = exportar;
